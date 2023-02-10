@@ -5,6 +5,9 @@
 # Session Data files
 .RData
 
+# R log files
+*.Rout
+
 # User-specific files
 .Ruserdata
 
@@ -37,3 +40,10 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+# HTML output (Rmd notebooks)
+*.html
+
+# Mac system files
+*.DS_Store
+
