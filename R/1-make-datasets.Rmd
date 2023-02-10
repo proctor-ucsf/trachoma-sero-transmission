@@ -1,0 +1,444 @@
+---
+title: "Trachoma endgame serology: create analysis datasets"
+author: "Contributors: Christine Tedijanto christine.tedijanto@ucsf.edu, Ben Arnold ben.arnold@ucsf.edu"
+date: "Last updated: `r Sys.Date()`"
+output:
+    html_document:
+      code_folding: hide
+      toc: true
+      toc_float: true
+      toc_collapsed: true
+      toc_depth: 3
+number_sections: false
+---
+
+**Objective:** Read in the overall harmonized trachoma serology datasets and filter them to surveys and measurements that meet the analysis inclusion criteria:
+
+* For studies with multiple years of data, focus on the most recent year (and in the case of studies with PCR, use the most recent data with PCR). Rationale: focus the comparison across the 14 locations rather than within-study changes.
+
+* Restrict to clusters with at least 15 observations for serology, PCR, or TF. Rationale: since the analysis focuses on cluster-level estimates, we were concerned about estimating means or seroconversion rates with fewer observations.  The choice of 15 obs per cluster was pragmatic and based on examination of the exclusion criteria in charts (below).
+
+This script will be provided along with replication files for transparency but will not be able to be run. It creates the publicly available datasets that will be provided with the analysis scripts.  It creates two files: an individual level dataset `trachoma_sero_transmission_analysis_indiv.csv/.rds` and a cluster level dataset `trachoma_sero_transmission_analysis_cluster.csv/.rds`.  Note that the study includes some PCR and TF results that were only available at the cluster level (not individual level due to pooling) and so the cluster level dataset includes more children for PCR and TF indicators. All Pgp3 antibody data are available at the individual level.
+
+## Preamble
+
+```{r setup, message = FALSE}
+library(here)
+source(here("R/0-config.R"))
+```
+
+## Read in data
+
+Read in the base trachoma serology harmonized datasets (individual and cluster level)
+
+```{r read data}
+#---------------------------------
+# read in the trachoma serology
+# individual level dataset
+#
+# drop the "_public" suffix from
+# ID variables
+#---------------------------------
+ind_df <- read_rds(here(final_data_path,"trachoma_serology_public_data_indiv_v2.rds")) %>%
+  rename(cluster_id = cluster_id_public,
+         household_id = household_id_public,
+         individual_id = individual_id_public) %>%
+  # filter to included studies
+  filter(study_id %in% c("Kongwa2013","Kongwa2018","Malawi2014","MORDOR2015","Morocco2019","PRET2013","TAITU2018","TCC-Ethiopia2017","WUHA2016")) %>%
+  mutate(location_year_name = droplevels(location_year_name)) 
+
+#---------------------------------
+# read in the trachoma serology
+# cluster level dataset
+#
+# drop the "_public" suffix from
+# ID variables
+#---------------------------------
+clu_df <- read_rds(here(final_data_path,"trachoma_serology_public_data_cluster_v2.rds")) %>%
+  rename(cluster_id = cluster_id_public) %>%
+  # filter to included studies
+  filter(study_id %in% c("Kongwa2013","Kongwa2018","Malawi2014","MORDOR2015","Morocco2019","PRET2013","TAITU2018","TCC-Ethiopia2017","WUHA2016")) %>%
+  mutate(location_year_name = droplevels(location_year_name)) 
+
+```
+
+
+## Restrict to analysis dataset
+
+Restrict to the most recent year of data for studies with multiple years of data. These include the WUHA trial (2016-2019, use 2019), the MORDOR trial (2015-2018, use 2018), and the Kongwa, Tanzania trial (Wilson 2019) (2012-2015, use 2013 — the most recent survey with PCR measurements).
+
+```{r filter data to recent year}
+#---------------------------------
+# add flag for most recent data from each study
+# NOTE: for Kongwa (Wilson 2019), 
+# we are selecting 2013 because that 
+# is the most recent year with PCR data. 
+# data from 2014 and 2015 were also collected, 
+# but using 2013 for consistency across analyses.
+#---------------------------------
+clu_df2 <- clu_df %>%
+  mutate(most_recent = ifelse(location_year_name %in% c("Kongwa, Tanzania 2014", "Kongwa, Tanzania 2015",
+                                                        "Wag Hemra, Ethiopia (WUHA) 2016", "Wag Hemra, Ethiopia (WUHA) 2017", "Wag Hemra, Ethiopia (WUHA) 2018",
+                                                         "Dosso, Niger (MORDOR) 2015", "Dosso, Niger (MORDOR) 2016", "Dosso, Niger (MORDOR) 2017"),
+                              0, 1))
+
+#---------------------------------
+# tabulate the number of clusters by
+# study, year, and whether they 
+# are included
+#---------------------------------
+table(clu_df2$location_year_name, clu_df2$most_recent)
+
+clu_df3 <- clu_df2 %>%
+  filter(most_recent==1) %>%
+  select(-most_recent)
+
+```
+
+This restriction to a single year of data reduces the cluster-level dataset from `r nrow(clu_df2)` to `r nrow(clu_df3)` cluster-level summaries.
+
+
+Examine influence of progressive cluster size restrictions on overall sample sizes (clusters, children).  Ideally, we'd like to include clusters with as many children as possible since the majority of this analysis relies on cluster-level summaries.  Examine restrictions along 30 (ideal) to 10 (very minimum).
+
+```{r examine influence of cluster size restriction}
+#---------------------------------
+# loop over cluster restrictions
+# from 5 to 30 and store the 
+# resulting sample sizes
+#---------------------------------
+
+clusizes <- seq(5,30,by=1)
+ss_scenarios <- foreach(clusti = clusizes, .combine=rbind) %do% {
+  di <- clu_df3 %>%
+    mutate(pgp3_minobs = ifelse(pgp3_n_tested >= clusti,1,0)) %>%
+    filter(pgp3_minobs == 1) %>%
+    mutate(ncl = 1) %>%
+    summarize(n_cl=sum(ncl, na.rm=TRUE),
+              n_pgp3 = sum(pgp3_n_tested, na.rm=TRUE),
+              n_pcr  = sum(pcr_n_tested, na.rm=TRUE),
+              n_tf   = sum(tf_n_tested, na.rm=TRUE)
+              ) %>%
+    mutate(minclust = clusti)
+  return(di)
+
+  
+}
+```
+
+```{r plot ss scenarios clusters, fig.width=6}
+#---------------------------------
+# plot number of clusters by
+# restriction
+#---------------------------------
+ggplot(data=ss_scenarios, aes(x=minclust, y = n_cl)) + 
+  geom_vline(xintercept = c(15,20), color = "gray50") +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks=seq(4,30,by=2)) +
+  labs(x = "minimum cluster size", y = "number of clusters included in analysis", title = "Influence of minimum cluster size on number of clusters") +
+  theme_minimal()
+```
+
+```{r plot ss scenarios children, fig.width=6, fig.height=12}
+#---------------------------------
+# plot number of children by
+# restriction
+#---------------------------------
+ss_scenarios2 <- ss_scenarios %>%
+  select(-n_cl) %>%
+  pivot_longer(cols=starts_with("n_"), values_to = "n_children", names_to = "pop")
+ggplot(data=ss_scenarios2, aes(x=minclust, y = n_children)) + 
+  facet_grid(pop~., scales = "free_y") +
+  geom_vline(xintercept = c(15,20), color = "gray50") +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks=seq(4,30,by=2)) +
+  labs(x = "minimum cluster size", y = "number of children included in analysis", title = "Influence of minimum cluster size on number of children") +
+  theme_minimal()
+```
+
+
+```{r set minimum number of observations per cluster}
+#---------------------------------
+# set the minimum number of 
+# observations per cluster
+# based on examining the curves (above)
+#---------------------------------
+minobs <- 15
+```
+
+Restrict to clusters with at least `r minobs` children measured by Pgp3 antibody response.  
+
+```{r restrict to clusters with minobs}
+#---------------------------------
+# Identify clusters with at least
+# the min number of 
+# observations for Pgp3
+#---------------------------------
+clu_df4 <- clu_df3 %>%
+  mutate(pgp3_minobs = ifelse(pgp3_n_tested >= minobs,TRUE,FALSE),
+         pgp3_minobs_lab = ifelse(pgp3_n_tested >= minobs,
+                              paste0("Pgp3 obs ≥",minobs),
+                              paste0("Pgp3 obs <",minobs)
+                              )
+         ) 
+
+```
+
+The restricted dataset has `r nrow(clu_df4 %>% filter(pgp3_minobs))` clusters with `r format(sum(clu_df4$pgp3_n_tested[clu_df4$pgp3_minobs], na.rm=TRUE),big.mark=",")` children tested for Pgp3 IgG, `r format(sum(clu_df4$pcr_n_tested[clu_df4$pgp3_minobs], na.rm=TRUE),big.mark=",")` children tested for PCR, and `r format(sum(clu_df4$tf_n_tested, na.rm=TRUE),big.mark=",")`children tested for TF.
+
+## Summarize the distribution of cluster sizes for each indicator, restricted to clusters with `r print(minobs)` children measured for Pgp3.
+
+```{r plot cluster size distributions, fig.width=6, fig.height=12}
+#---------------------------------
+# plot number of children by
+# measurement, re
+#---------------------------------
+plot_cl <- clu_df4 %>%
+  filter(pgp3_minobs) %>%
+  select(cluster_id,pgp3_n_tested, pcr_n_tested, tf_n_tested) %>%
+  pivot_longer(cols=ends_with("n_tested"), values_to = "n_children", names_to = "pop")
+ggplot(data=plot_cl, aes(x= n_children)) + 
+  facet_grid(pop~.) +
+  geom_histogram(alpha=0.3,color="black", binwidth=10) +
+  scale_x_continuous(breaks=seq(0,320,by=40))+
+  labs(x = "cluster size", y = "number of clusters", title = "Distribution of cluster sizes") +
+  theme_minimal()
+```
+
+## Save cluster analysis dataset
+
+Restrict to final variables and save the analysis dataset
+
+```{r save analysis dataset}
+#---------------------------------
+# restrict to final variables and
+# save the analysis dataset
+#---------------------------------
+clu_df5 <- clu_df4 %>%
+  select(study_id,year,location_year_name,cluster_id,mda,
+         starts_with("pcr_"),
+         starts_with("tf_"),
+         starts_with("ti_"),
+         starts_with("pgp3_")) %>%
+   mutate(location_year_name = factor(location_year_name, levels=location_year_name_order),
+         location_year_name = droplevels(location_year_name))
+
+summary(clu_df5)
+str(clu_df5)
+
+write_csv(clu_df5, file=here("data","trachoma_sero_transmission_analysis_cluster.csv"))
+write_rds(clu_df5, file=here("data","trachoma_sero_transmission_analysis_cluster.rds"))
+```
+
+### Summarize N clusters and N children
+
+The restrictions of including ≥15 children per cluster for each measurement means that there are some clusters from the total `r nrow(clu_df5)` clusters that will be excluded from different analyses. Tally the number of clusters and children available for each biomarker.
+
+```{r tally number of clusters and children available}
+
+#---------------------------------
+# summarize marginal totals
+#---------------------------------
+ncl_pgp3 <- length(clu_df5$pgp3_n_tested[clu_df5$pgp3_minobs])
+nch_pgp3 <- sum(clu_df5$pgp3_n_tested[clu_df5$pgp3_minobs])
+ncl_pcr <- length(clu_df5$pcr_n_tested[clu_df5$pcr_n_tested>0 & clu_df5$pgp3_minobs])
+nch_pcr <- sum(clu_df5$pcr_n_tested[clu_df5$pcr_n_tested>0 & clu_df5$pgp3_minobs])
+ncl_tf  <- length(clu_df5$tf_n_tested[clu_df5$tf_n_tested>0 & clu_df5$pgp3_minobs])
+nch_tf  <- sum(clu_df5$tf_n_tested[clu_df5$tf_n_tested>0 & clu_df5$pgp3_minobs])
+ncl_ch <- data.frame(biomarker = c("Pgp3 IgG","PCR","TF"),
+                     ncl = c(ncl_pgp3,ncl_pcr,ncl_tf),
+                     nch = c(nch_pgp3,nch_pcr,nch_tf))
+kbl(ncl_ch, 
+    col.names = c("Biomarker","N clusters","N children"),
+    caption = "Number of clusters with ≥15 children measured for Pgp3 per cluster and number of children in those clusters, by trachoma biomarker.",
+    format.args=list(big.mark=",")) %>%
+  kable_styling(bootstrap_options ="striped")
+
+```
+
+## Restrict individual level dataset
+
+For the individual level dataset, restrict to child age, MDA status, clinical measures (TF/TI), PCR test results and Pgp3 antibody measurements.  Note that there are some studies for which individual-level PCR and clinical data are not available at the individual level.  Individual level data are included to estimate age-seroprevalence curves and seroconversion rates using age-seroprevalence (current status survival analysis).
+
+```{r restrict indiv dataset}
+#---------------------------------
+# restrict the individual level
+# dataset to the same clusters
+# and study years
+#---------------------------------
+selected_clusters <- unique(clu_df5$cluster_id)
+ind_df2 <- ind_df %>%
+  left_join(clu_df5 %>% select(study_id,location_year_name,cluster_id,pgp3_minobs), by=c("study_id","location_year_name","cluster_id")) %>%
+  filter(cluster_id %in% selected_clusters) %>%
+  select(study_id,cluster_id,household_id,individual_id,survey,year,
+         location_name,location_year_name,
+         mda,
+         age_months, age_years, pcr, tf, ti, 
+         starts_with("pgp3_")
+         ) %>%
+  mutate(location_year_name = factor(location_year_name, levels=location_year_name_order),
+         location_year_name = droplevels(location_year_name))
+
+#---------------------------------
+# confirm that the number of clusters
+# is consistent between the two files
+#---------------------------------
+length(unique(ind_df2$cluster_id[ind_df2$pgp3_minobs]))
+nrow(clu_df5 %>% filter(pgp3_minobs))
+length(unique(ind_df2$cluster_id[ind_df2$pgp3_minobs])) == nrow(clu_df5 %>% filter(pgp3_minobs))
+
+#---------------------------------
+# confirm that all Pgp3 antibody
+# data are consistent between the
+# two files. The cluster-level dataset
+# includes more observations for PCR
+# and TF/TI
+# 
+# these numbers are limited to
+# clusters with >= 15 Pgp3 measures
+#---------------------------------
+sum(!is.na(ind_df2$pgp3_bin[ind_df2$pgp3_minobs]))
+sum(clu_df5$pgp3_n_tested[clu_df5$pgp3_minobs], na.rm=TRUE)
+sum(!is.na(ind_df2$pgp3_bin[ind_df2$pgp3_minobs])) == sum(clu_df5$pgp3_n_tested[clu_df5$pgp3_minobs], na.rm=TRUE)
+
+#---------------------------------
+# list number of TF and PCR measures
+# in the individual level dataset
+# these Ns will be less than the 
+# Ns listed in the table above
+# for the cluster-level dataset
+# because there are  a few studies
+# that had only cluster-level data
+# for PCR and TF
+#---------------------------------
+sum(!is.na(ind_df2$tf[ind_df2$pgp3_minobs]))
+sum(!is.na(ind_df2$pcr[ind_df2$pgp3_minobs]))
+```
+
+```{r save indiv analysis dataset}
+#---------------------------------
+# save the individual level 
+# analysis dataset
+#---------------------------------
+summary(ind_df2)
+str(ind_df2)
+
+write_csv(ind_df2, file=here("data","trachoma_sero_transmission_analysis_indiv.csv"))
+write_rds(ind_df2, file=here("data","trachoma_sero_transmission_analysis_indiv.rds"))
+```
+ 
+## Create a summary of study-level characteristics
+
+This study-level information is re-used in figures.
+
+The study-level information is limited to clusters with ≥15 Pgp3 measurements.
+
+```{r summarize by location year}
+#------------------------------
+# study level summary
+#------------------------------
+lyn_all_summary <- clu_df5 %>% 
+  filter(pgp3_minobs) %>%
+  group_by(study_id, year,location_year_name) %>% 
+  summarise(pcr_n_tested = sum(pcr_n_tested, na.rm = TRUE),
+            tf_n_tested = sum(tf_n_tested, na.rm = TRUE),
+            ti_n_tested = sum(ti_n_tested, na.rm = TRUE),
+            pgp3_n_tested = sum(pgp3_n_tested, na.rm = TRUE),
+            pcr_prev_mean = mean(pcr_prev, na.rm = TRUE),
+            pcr_prev_median = median(pcr_prev, na.rm = TRUE),
+            tf_prev_mean = mean(tf_prev, na.rm = TRUE),
+            tf_prev_median = median(tf_prev, na.rm = TRUE),
+            ti_prev_mean = mean(ti_prev, na.rm = TRUE),
+            ti_prev_median = median(ti_prev, na.rm = TRUE),
+            pgp3_prev_mean = mean(pgp3_prev, na.rm = TRUE),
+            pgp3_prev_median = median(pgp3_prev, na.rm = TRUE),
+            pgp3_log10mean_mean = mean(pgp3_log10mean, na.rm = TRUE),
+            pgp3_log10mean_median = median(pgp3_log10mean, na.rm = TRUE),
+            pgp3_log10geomean_mean = mean(pgp3_log10geomean, na.rm = TRUE),
+            pgp3_log10geomean_median = median(pgp3_log10geomean, na.rm = TRUE),
+            .groups = "drop") %>%
+  # set prev and mean IgG to NA if no children were measured
+    mutate(pcr_prev_mean = ifelse(pcr_n_tested == 0, NA, pcr_prev_mean),
+           pcr_prev_median = ifelse(pcr_n_tested == 0, NA, pcr_prev_median),
+           tf_prev_mean = ifelse(tf_n_tested == 0, NA, tf_prev_mean),
+           tf_prev_median = ifelse(tf_n_tested == 0, NA, tf_prev_median),
+           ti_prev_mean = ifelse(ti_n_tested == 0, NA, ti_prev_mean),
+           ti_prev_median = ifelse(ti_n_tested == 0, NA, ti_prev_median),
+           pgp3_prev_mean = ifelse(pgp3_n_tested == 0, NA, pgp3_prev_mean),
+           pgp3_prev_median = ifelse(pgp3_n_tested == 0, NA, pgp3_prev_median),
+           pgp3_log10mean_mean = ifelse(pgp3_n_tested == 0 | is.nan(pgp3_log10mean_mean), NA, pgp3_log10mean_mean),
+           pgp3_log10mean_median = ifelse(pgp3_n_tested == 0 | is.nan(pgp3_log10mean_median), NA, pgp3_log10mean_median),
+           pgp3_log10geomean_mean = ifelse(pgp3_n_tested == 0 | is.nan(pgp3_log10geomean_mean), NA, pgp3_log10geomean_mean),
+           pgp3_log10geomean_median = ifelse(pgp3_n_tested == 0 | is.nan(pgp3_log10geomean_median), NA, pgp3_log10geomean_median)
+    )
+
+```
+
+```{r summarize study-level characteristics, message = FALSE}
+# count total sample size and cluster size for each location-year
+# number of individuals in location & year with any serology result
+# limit the totals to the clusters with >= 15 children tested for Pgp3
+n_df <- ind_df2 %>% 
+  filter(!is.na(pgp3_bin) & pgp3_minobs) %>% 
+  group_by(location_year_name, cluster_id) %>%
+  mutate(nch = n()) %>%
+  filter(nch>=15) %>%
+  ungroup() %>%
+  count(location_year_name, name = "n") 
+
+# number of clusters in location & year with any serology result
+# limit the totals to clusters with >= 15 children tested for Pgp3
+m_df <- ind_df2 %>% 
+  filter(pgp3_minobs) %>%
+  group_by(location_year_name, cluster_id) %>% 
+  summarise(pgp3_n = sum(!is.na(pgp3_bin))) %>% 
+  count(location_year_name, name = "m") 
+
+# create dataset of location-year characteristics
+study_df <- ind_df2 %>% 
+  distinct(location_year_name, location_name) %>% 
+  left_join(lyn_all_summary, by="location_year_name") %>%
+  # add label for endemicity category
+  mutate(endemic_cat = case_when(
+    location_name %in% c("Wag Hemra, Ethiopia (WUHA)", "Wag Hemra, Ethiopia (TAITU)", "Andabet, Ethiopia","Matameye, Niger (PRET)") ~ "High seroprevalence",
+    location_year_name == "Kongwa, Tanzania 2018" ~ "Intermediate seroprevalence",
+    location_name == "Kongwa, Tanzania"  ~ "High seroprevalence",
+    location_name %in% c("Dera, Ethiopia", "Mchinji, Malawi", "Chikwawa, Malawi","Agdaz, Morocco") ~ "Intermediate seroprevalence",
+    location_name %in% c("Alefa, Ethiopia", "Woreta town, Ethiopia", "Dosso, Niger (MORDOR)", "Boumalne Dades, Morocco", "Agdaz, Morocco") ~ "Low seroprevalence")) %>% 
+  # append sample size and number of clusters to location_year_name
+  left_join(n_df, by = "location_year_name") %>% 
+  left_join(m_df, by = "location_year_name") %>% 
+  mutate(location_year_name_nm = paste0(gsub(",", ",\n", location_year_name), "\n", "(n=", n, ", m=", m, ")")) %>% 
+  # denote location / year combination that were surveillance surveys meant to be representative of study area
+  mutate(location_year_name_nm = ifelse(location_year_name %in% c("Alefa, Ethiopia 2017", "Andabet, Ethiopia 2017", "Dera, Ethiopia 2017", "Woreta town, Ethiopia 2017",
+                                                                  "Kongwa, Tanzania 2018", "Chikwawa, Malawi 2014", "Mchinji, Malawi 2014",
+                                                                  "Boumalne Dades, Morocco 2019", "Agdaz, Morocco 2019"),
+                                        paste0(location_year_name_nm, "*"), location_year_name_nm)) %>% 
+  # denote cases where data collected among 1-5 only
+  mutate(location_year_name_nm = ifelse(location_name %in% c("Wag Hemra (TAITU), Ethiopia", "Dosso, Niger (MORDOR)", "Matameye, Niger (PRET)"),
+                                        paste0(location_year_name_nm, " †"), location_year_name_nm)) %>% 
+  # denote CC only (district-level PCR, and for 1-5yo)
+  mutate(location_year_name_nm = ifelse(location_year_name %in% c("Alefa, Ethiopia 2017", "Andabet, Ethiopia 2017", "Dera, Ethiopia 2017", "Woreta town, Ethiopia 2017"),
+                                        paste0(location_year_name_nm, " ‡"), location_year_name_nm)) %>% 
+  mutate(location_year_name = factor(location_year_name, levels = location_year_name_order))
+
+study_df
+```
+
+```{r save study analysis dataset}
+#---------------------------------
+# save the study level 
+# analysis dataset
+#---------------------------------
+summary(study_df)
+str(study_df)
+
+write_csv(study_df, file=here("data","trachoma_sero_transmission_analysis_study.csv"))
+write_rds(study_df, file=here("data","trachoma_sero_transmission_analysis_study.rds"))
+```
+
+## Session Info
+```{r session info}
+sessionInfo()
+```
