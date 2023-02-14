@@ -1,0 +1,514 @@
+---
+title: "Monitoring transmission intensity of trachoma with serology"
+subtitle: "Estimate force of infection using seroconversion rate models"
+author: "Contributors: Christine Tedijanto christine.tedijanto@ucsf.edu and Ben Arnold ben.arnold@ucsf.edu"
+date: "Last updated: `r Sys.Date()`"
+output:
+    html_document:
+      code_folding: hide
+      toc: true
+      toc_float: true
+      toc_collapsed: true
+      toc_depth: 3
+number_sections: false
+---
+
+**Objective:** Estimate force of infection using different types of seroconversion rate models (SIR, SIS, semiparametric).
+
+The analysis generates cluster-level estimates and study-level estimates, which are in turn saved in the `output` directory as `.csv/.rds` files.  Later scripts read in these results to make summary figures.
+
+
+## Setup
+
+```{r setup, message = FALSE}
+#---------------------------------
+# source the configuration file
+#---------------------------------
+library(here)
+source(here("R/0-config.R"))
+
+# for models that allow sero-reversion 
+# (SIS aka reversible catalytic models), 
+# use seroreversion rate from West 2018 
+# (based on 6.4% risk of seroreversion over 1 year)
+west_sr <- 0.066
+```
+
+
+## Read data
+
+```{r read in the data}
+#---------------------------------
+# read the individual level dataset
+#
+# filter to clusters with
+# at least 15 children measured 
+# for Pgp3 and non-missing obs
+#---------------------------------
+ind_df <- read_rds(here("data","trachoma_sero_transmission_analysis_indiv.rds")) %>%
+  filter(pgp3_minobs) %>%
+  filter(!is.na(pgp3_bin))
+
+#---------------------------------
+# read the cluster level dataset
+#
+# filter to clusters with
+# at least 15 children measured 
+# for Pgp3
+#---------------------------------
+clu_df <- read_rds(here("data","trachoma_sero_transmission_analysis_cluster.rds")) %>%
+  filter(pgp3_minobs) 
+
+```
+
+```{r figure_prep}
+save_figs <- FALSE
+
+#---------------------------------
+# set shared theme for figures
+#---------------------------------
+summary_stat_theme <- list(facet_wrap(.~location_year_name, ncol = 4),
+                           theme_minimal(),
+                           scale_fill_manual(values = location_year_name_colors),
+                           scale_color_manual(values = location_year_name_colors),
+                           theme(legend.position = "none"))
+```
+
+
+## Summarize data for each location-year in the analysis
+
+This summary is used because for the semi-parametric estimates of seroconversion rates, these can only be estimated across all clusters in each survey (there is not enough information at the cluster level to fit an age-varying seroconversion rate model).
+
+```{r summarize by location year}
+lyn_all_summary <- clu_df %>% 
+  group_by(study_id, year, location_year_name) %>% 
+  summarise(pcr_n_tested = sum(pcr_n_tested, na.rm = TRUE),
+            tf_n_tested = sum(tf_n_tested, na.rm = TRUE),
+            ti_n_tested = sum(ti_n_tested, na.rm = TRUE),
+            pgp3_n_tested = sum(pgp3_n_tested, na.rm = TRUE),
+            pcr_prev_mean = mean(pcr_prev, na.rm = TRUE),
+            pcr_prev_median = median(pcr_prev, na.rm = TRUE),
+            tf_prev_mean = mean(tf_prev, na.rm = TRUE),
+            tf_prev_median = median(tf_prev, na.rm = TRUE),
+            ti_prev_mean = mean(ti_prev, na.rm = TRUE),
+            ti_prev_median = median(ti_prev, na.rm = TRUE),
+            pgp3_prev_mean = mean(pgp3_prev, na.rm = TRUE),
+            pgp3_prev_median = median(pgp3_prev, na.rm = TRUE),
+            pgp3_log10mean_mean = mean(pgp3_log10mean, na.rm = TRUE),
+            pgp3_log10mean_median = median(pgp3_log10mean, na.rm = TRUE),
+            pgp3_log10geomean_mean = mean(pgp3_log10geomean, na.rm = TRUE),
+            pgp3_log10geomean_median = median(pgp3_log10geomean, na.rm = TRUE),
+            .groups = "drop")
+
+```
+
+
+## Force of infection (FOI) estimates
+
+### Simple catalytic model (SIR)
+
+All force of infection model code borrows heavily from the following Github repositories from previous seroepidemiologic studies in the group:
+
+* [mbita-schisto](https://github.com/ben-arnold/mbita-schisto/blob/master/R/4-mbita-schisto-by-age.Rmd, https://github.com/ben-arnold/mbita-schisto/blob/master/R/mbita-schisto-Functions.R)
+* [enterics-seroepi](https://github.com/ben-arnold/enterics-seroepi/blob/master/R/SI-File7-Fig6-asembo-cross-sectional-FOI-estimation.Rmd)
+
+```{r estimate sir models, max.width = 8.5}
+## `get_sir_results`: function that returns FOI estimate from simple catalytic model -----
+get_sir_results <- function(df){
+  
+  temp_df <- df %>% filter(!is.na(pgp3_bin))
+  
+  glm_fit <- tryCatch(glm(pgp3_bin~1, offset = log(age_years),
+                          data = temp_df,
+                          family = binomial(link = "cloglog")),
+                      error = function(cond){return(cond$message)},
+                      warning = function(cond){return(cond$message)})
+  
+  if(class(glm_fit)[1] == "character") {
+    lambda <- NA
+    lambda_lb <- NA
+    lambda_ub <- NA
+    minll <- NA
+    sir_err_warn_msg <- glm_fit
+  } else {
+    glm_summary <- summary(glm_fit)
+    log_lambda_se  <- sqrt(glm_summary$cov.unscaled)
+    
+    lambda <- as.numeric(exp(glm_fit$coefficients)) # use as.numeric to remove variable names
+    lambda_lb <- as.numeric(exp(glm_fit$coefficients - 1.96*log_lambda_se))
+    lambda_ub <- as.numeric(exp(glm_fit$coefficients + 1.96*log_lambda_se))
+    minll <- -(logLik(glm_fit))
+    sir_err_warn_msg <- NA
+  }
+  
+  ret <- data.frame(sir_n = nrow(temp_df),
+                    sir_foi = lambda,
+                    sir_foi_lb = lambda_lb,
+                    sir_foi_ub = lambda_ub,
+                    sir_minll = minll,
+                    sir_err_warn_msg)
+  return(ret)
+}
+
+## run at each level of interest -----
+clu_all_sir <- foreach(curr_lyn_clu = unique(ind_df$cluster_id), .combine = rbind) %dopar% { 
+  get_sir_results(df = ind_df %>% filter(cluster_id == curr_lyn_clu)) %>% 
+      mutate(cluster_id = curr_lyn_clu)
+  }
+
+clu_1to5_sir <- foreach(curr_lyn_clu = unique(ind_df$cluster_id), .combine = rbind) %dopar% {
+  get_sir_results(df = ind_df %>% filter(age_years<=5, cluster_id == curr_lyn_clu)) %>% 
+    mutate(cluster_id = curr_lyn_clu)
+  }
+
+clu_1to3_sir <- foreach(curr_lyn = unique(ind_df$location_year_name), .combine = rbind) %dopar% {
+  get_sir_results(df = ind_df %>% filter(age_years<=3, location_year_name == curr_lyn)) %>% 
+    mutate(location_year_name = curr_lyn)
+  }
+
+lyn_all_sir <- foreach(curr_lyn = unique(ind_df$location_year_name), .combine = rbind) %dopar% {
+  get_sir_results(df = ind_df %>% filter(location_year_name == curr_lyn)) %>% 
+    mutate(location_year_name = curr_lyn)
+  }
+
+lyn_all_sir <- lyn_all_sir %>%
+  left_join(clu_all_sir %>%
+              left_join(ind_df %>% distinct(location_year_name, cluster_id), by = "cluster_id") %>% 
+              group_by(location_year_name) %>%
+              summarise(sir_foi_mean = mean(sir_foi, na.rm = TRUE),
+                        sir_foi_wtmean = weighted.mean(sir_foi, w = sir_n, na.rm = TRUE),
+                        sir_foi_median = median(sir_foi, na.rm = TRUE),
+                        .groups = "drop"),
+            by = "location_year_name")
+```
+
+```{r, fig.width = 8.5, fig.height = 7}
+clu_all_sir %>% 
+  filter(!is.na(sir_foi)) %>% 
+  left_join(ind_df %>% distinct(location_year_name, cluster_id), by = "cluster_id") %>% 
+  ggplot() +
+  geom_histogram(aes(x = sir_foi, fill = location_year_name),
+                 color = "black", binwidth = 0.02) +
+  labs(x = "cluster-level seroconversion (simple catalytic)") +
+  coord_cartesian(xlim = c(0,1)) +
+  summary_stat_theme
+```
+
+### Reversible catalytic model (SIS)
+
+```{r sis model functions, max.width = 8.5}
+# log-likelihood function for reversible catalytic model with fixed seroreversion rate
+loglik_sis <- function(h,r,data) {
+  # h    : \lambda seroconversion rate (to be estimated)
+  # r    : \rho seroreversion rate (fixed)
+  # data  : data frame with 1 row per age group. cols = age / n / k
+  h <- rep(h,nrow(data))
+  r <- rep(r,nrow(data))
+  t <- data[,1]
+  n <- data[,2]
+  k <- data[,3]
+  p <- h/(r+h)*(1-exp(-(r+h)*t))
+  # negative log likelihood function (to minimize with optim)
+  sum( - (k)*log(p) - (n-k)*log(1-p) )
+}
+
+## `get_sis_results`: return FOI estimates under a reversible catalytic model -----
+# model with assumed seroreversion rate
+# note that inference here underestimates variability since there is uncertainty in seroreversion rate
+get_sis_results <- function(df, curr_sr){
+  
+  #print(paste0(unique(df$cluster_id), ", ", curr_sr))
+  
+  temp_df <- df %>% 
+    filter(!is.na(pgp3_bin)) %>% 
+    group_by(age_years) %>%
+    summarise(pgp3_pos = sum(pgp3_bin),
+              n = n(),
+              .groups = "drop") %>% 
+    dplyr::select(age_years, n, pgp3_pos)
+  
+  # maximum likelihood solution
+  # with fixed sero-reversion rate
+  minll <- tryCatch(optim(par = c(0.1),
+                          fn = loglik_sis,
+                          r = curr_sr,
+                          data = temp_df,
+                          hessian = TRUE,
+                          method = "Brent",
+                          lower = 0,
+                          upper = 1),
+                    error = function(cond){return(cond$message)},
+                    warning = function(cond){return(cond$message)})
+  
+  if(class(minll)[1] == "character") {
+    minll_value <- NA
+    lambda_hat <- NA
+    lambda_lb <- NA
+    lambda_ub <- NA
+    sis_err_warn_msg <- minll
+  } else {
+    minll_value <- minll$value
+    lambda_hat <- minll$par
+    # estimate SE and CI from the inverse information matrix
+    I <- solve(minll$hessian)
+    lambda_se <- sqrt(diag(I))
+    lambda_lb <- lambda_hat-1.96*lambda_se
+    lambda_ub <- lambda_hat+1.96*lambda_se
+    sis_err_warn_msg <- NA
+  }
+  
+  ret <- data.frame(seroreversion = curr_sr,
+                    sis_minll = minll_value,
+                    sis_foi = lambda_hat,
+                    sis_foi_lb = lambda_lb,
+                    sis_foi_ub = lambda_ub,
+                    sis_err_warn_msg)
+  return(ret)
+}
+```
+
+```{r estimate sis models}
+## run at each level of interest -----
+clu_all_sis <- foreach(curr_lyn_clu = unique(ind_df$cluster_id), .combine = rbind) %:%
+  foreach(curr_sr = c(west_sr, seq(0,0.2,0.02)), .combine = rbind) %dopar% {
+    get_sis_results(df = ind_df %>% filter(cluster_id == curr_lyn_clu), curr_sr = curr_sr) %>% mutate(cluster_id = curr_lyn_clu)
+    }
+
+clu_1to5_sis <- foreach(curr_lyn_clu = unique(ind_df %>% filter(age_years<=5) %>% pull(cluster_id)), .combine = rbind) %:%
+  foreach(curr_sr = c(west_sr, seq(0,0.2,0.02)), .combine = rbind) %do% {
+    get_sis_results(df = ind_df %>% filter(age_years<=5, cluster_id == curr_lyn_clu), curr_sr = curr_sr) %>% mutate(cluster_id = curr_lyn_clu)
+    }
+
+lyn_all_sis <- foreach(curr_lyn = unique(ind_df$location_year_name), .combine = rbind) %:%
+  foreach(curr_sr = c(west_sr, seq(0,0.2,0.02)), .combine = rbind) %dopar% {
+    get_sis_results(df = ind_df %>% filter(location_year_name == curr_lyn), curr_sr = curr_sr) %>% mutate(location_year_name = curr_lyn)
+  } 
+
+lyn_all_sis <- lyn_all_sis %>%
+    left_join(clu_all_sis %>%
+              left_join(ind_df %>% distinct(location_year_name, cluster_id), by = "cluster_id") %>% 
+              group_by(location_year_name, seroreversion) %>%
+              summarise(sis_foi_mean = mean(sis_foi, na.rm = TRUE),
+                        sis_foi_median = median(sis_foi, na.rm = TRUE),
+                        .groups = "drop"),
+            by = c("location_year_name", "seroreversion"))
+```
+
+```{r, fig.width = 8.5, fig.height = 7}
+clu_all_sis %>% 
+  filter(seroreversion == west_sr, !is.na(sis_foi)) %>% 
+  left_join(ind_df %>% distinct(location_year_name, cluster_id), by = "cluster_id") %>% 
+  ggplot() +
+  geom_histogram(aes(x = sis_foi, fill = location_year_name),
+                 color = "black", binwidth = 0.05) +
+  labs(x = "cluster-level seroconversion (reversible catalytic, sr = 0.066)") +
+  coord_cartesian(xlim = c(0,3)) +
+  summary_stat_theme
+```
+
+### Semiparametric spline
+
+```{r cluster level gam}
+avgFOI <- function(m, newdata, a1, a2, nreps = 10000) {
+
+  # limit the prediction data to the two time points
+  newdata <- newdata %>%
+    filter(age_years %in% c(a1,a2)) %>%
+    arrange(age_years)
+  
+  # get predicted seroprevalence, Ft, from GAM model
+  gFt <- predict(m, newdata)
+  Ft <- 1 - exp(-exp(gFt))  # complementary log-log link
+  #Ft <- exp(gFt)/(1+exp(gFt)) # alternative logistic link (not used)
+  
+  # average FOI over a1 to a2 is: 
+  # foi = [log(1-F(a1))-log(1-F(a2))] / (a2-a1)
+  mufoi <- (log(1-Ft[1]) - log(1-Ft[2])) / (a2-a1) 
+
+  # parametric bootstrap simulation from the
+  # model coefficient estimates, assuming the model is true
+  X0 <- predict(m, newdata, type = "lpmatrix")
+  Vb <- vcov(m, unconditional = TRUE)
+  set.seed(123)
+  sims <- MASS::mvrnorm(n = nreps, mu = coef(m), Sigma = Vb)
+  gFt.bs <- X0 %*% t(sims)
+  Ft.bs <- 1 - exp(-exp(gFt.bs))
+  #Ft.bs <- exp(gFt.bs)/(1+exp(gFt.bs)) # changed 07/19/22
+  mufoi.bs <- (log(1-Ft.bs[1,]) - log(1-Ft.bs[2,])) / (a2-a1)
+  
+  # estimate approximate bs SE and percentile-based 95% credible interval
+  mufoi.se <- sd(mufoi.bs)
+  mufoi.ci <- quantile(mufoi.bs, probs = c(0.025, 0.975), na.rm = TRUE)
+  ret <- data.frame(gam_foi = mufoi, gam_foi_se = mufoi.se, gam_foi_lb = mufoi.ci[1], gam_foi_ub = mufoi.ci[2])
+  return(ret)
+}
+
+## `get_gam_results`: get FOI estimates from GAM (semiparametric spline) -----
+get_gam_results <- function(df){
+  
+  temp_df <- df %>% filter(!is.na(pgp3_bin))
+  
+  temp_fit <- tryCatch(mgcv::gam(pgp3_bin~s(age_years, bs = "cr", k = 3),
+                           data = temp_df,
+                           family = binomial(link = "cloglog")),
+                           #family = binomial(link = "logit")), # changed 07/19/22
+                       error = function(cond){return(cond$message)},
+                       warning = function(cond){return(cond$message)})
+
+  new_df <- data.frame(age_years = c(1:9))
+  
+  if(class(temp_fit)[1] == "character") {
+    ret <- data.frame(gam_n = nrow(temp_df),
+                      gam_foi = NA,
+                      gam_foi_se = NA,
+                      gam_foi_lb = NA,
+                      gam_foi_ub = NA,
+                      gam_minll = NA,
+                      gam_aic = NA,
+                      gam_err_warn_msg = temp_fit)
+  } else {
+    ret <- avgFOI(m = temp_fit, newdata = new_df, a1 = 1, a2 = max(temp_df$age_years)) %>% 
+      mutate(gam_n = nrow(temp_df),
+             gam_minll = -logLik(temp_fit),
+             gam_aic = AIC(temp_fit),
+             gam_err_warn_msg = NA)
+  }
+  
+  return(ret)
+}
+
+## run only at the study/district level 
+## because requires a large number of obs to estimate the spline -----
+
+lyn_all_gam <- foreach(curr_lyn = unique(ind_df$location_year_name), .combine = rbind) %dopar% {
+    get_gam_results(df = ind_df %>% filter(location_year_name == curr_lyn)) %>%
+    mutate(location_year_name = curr_lyn)
+    } 
+```
+
+
+We can also visualize the GAM curves:
+
+```{r, fig.width = 8.5, fig.height = 8}
+get_full_gam_results <- function(df) {
+  eps <- 1e-07 # small value, to estimate FOI along the curve
+  
+  temp_df <- df %>% filter(!is.na(pgp3_bin))
+  
+  temp_fit <- tryCatch(mgcv::gam(pgp3_bin~s(age_years, bs = "cr", k = 3),
+                           data = temp_df,
+                           family = binomial(link = "logit")),
+                       error = function(cond){return(cond$message)},
+                       warning = function(cond){return(cond$message)})
+
+  if(class(temp_fit)[1] == "character") {
+    ret <- data.frame(age_years = NA,
+                      age_foi = NA)
+  } else {
+    new_df <- data.frame(age_years = seq(1, max(temp_df$age_years), by = 0.1))
+    new_df_eps <- new_df + eps
+    
+    pred_probs <- predict(temp_fit, new_df, type = "response")
+    deriv <- (predict(temp_fit, new_df_eps) - predict(temp_fit, new_df)) / eps
+    
+    ret <- data.frame(age_years = seq(1, max(temp_df$age_years), by = 0.1),
+                      age_foi = deriv * pred_probs)
+  }
+  return(ret)
+}
+
+## run at each level of interest -----
+lyn_all_gam_full <- foreach(curr_lyn = unique(ind_df$location_year_name), .combine = rbind) %dopar% {
+  get_full_gam_results(df = ind_df %>% filter(location_year_name == curr_lyn)) %>% 
+    mutate(location_year_name = curr_lyn)
+  }
+
+## visualize -----
+lyn_all_gam_full %>% 
+  ggplot() +
+  geom_line(aes(x = age_years, y = age_foi, color = location_year_name)) +
+  geom_point(data = . %>% filter(age_years %in% c(1:9)),
+             aes(x = age_years, y = age_foi, fill = location_year_name),
+             pch = 21, color = "black", size = 3) +
+  scale_color_manual(values = location_year_name_colors) +
+  scale_fill_manual(values = location_year_name_colors) +
+  scale_x_continuous(breaks = c(0:9), labels = c(0:9)) +
+  coord_cartesian(ylim = c(-0.1, 0.3)) +
+  facet_wrap(.~location_year_name, ncol = 4) +
+  labs(y = "age-specific seroconversion (semiparametric spline)", x = "age (years)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## Consolidate FOI results
+
+
+```{r join cluster level estimates}
+# cluster-level, all children
+clu_all_summary_foi <- clu_df %>% 
+  left_join(clu_all_sir, by = "cluster_id") %>% 
+  left_join(clu_all_sis %>% filter(seroreversion == west_sr), by = "cluster_id") %>% 
+  mutate_at(vars(sir_foi, sis_foi), ~ifelse(pgp3_prev == 0, 0, .)) %>% 
+  mutate(sir_foi = ifelse(!is.na(sir_err_warn_msg), NA, sir_foi)) %>% 
+  mutate(sis_foi = ifelse(!is.na(sis_err_warn_msg), NA, sis_foi)) 
+
+# cluster-level, 1-5yo
+clu_1to5_summary_foi <- clu_df %>% 
+  left_join(clu_1to5_sir, by = "cluster_id") %>% 
+  left_join(clu_1to5_sis %>% filter(seroreversion == west_sr), by = "cluster_id") %>% 
+  mutate_at(vars(sir_foi, sis_foi), ~ifelse(pgp3_prev == 0, 0, .)) %>% 
+  mutate(sir_foi = ifelse(!is.na(sir_err_warn_msg), NA, sir_foi)) %>% 
+  mutate(sis_foi = ifelse(!is.na(sis_err_warn_msg), NA, sis_foi))
+
+# cluster-level, 1-9yo
+clu_1to9_summary_foi <- clu_all_summary_foi %>% 
+  filter(study_id %ni% c("PRET2013", "MORDOR2015")) %>% # remove location + year combos without full 1-9yo
+  mutate_at(vars(starts_with("pgp3"), starts_with("ct694"), starts_with("sir"), starts_with("sis"), starts_with("gam")),
+            ~ifelse(study_id == "WUHA2016" & year %in% c(2017, 2018), NA, .)) # WUHA month 12+24 serology are 1-5yo only
+
+```
+
+```{r join study level estimates}
+
+# location-year-level, all
+# add number of clusters where models converged for SIR and SIS models
+lyn_all_summary_foi <- lyn_all_summary %>% 
+  left_join(lyn_all_sir, by = "location_year_name") %>% 
+  left_join(lyn_all_sis %>% filter(seroreversion == west_sr), by = "location_year_name") %>% 
+  left_join(lyn_all_gam, by = "location_year_name") %>% 
+  left_join(clu_all_summary_foi %>% filter(is.na(sir_err_warn_msg)) %>% count(location_year_name, name = "sir_converge_n"),
+            by = c("location_year_name")) %>% 
+  left_join(clu_all_summary_foi %>% filter(is.na(sis_err_warn_msg)) %>% count(location_year_name, seroreversion, name = "sis_converge_n"),
+            by = c("location_year_name", "seroreversion")) 
+```
+
+## Store estimates
+
+```{r save estimates}
+# location-year-level, all
+write_csv(lyn_all_summary_foi, file = here("output", "lyn_all_summary.csv"))
+write_rds(lyn_all_summary_foi, file = here("output", "lyn_all_summary.rds"))
+write_csv(lyn_all_sis, file = here("output", "lyn_all_sis.csv"))
+write_rds(lyn_all_sis, file = here("output", "lyn_all_sis.rds"))
+
+# cluster-level, 1-5 only
+write_csv(clu_1to5_summary_foi, file = here("output", "clu_1to5_summary.csv"))
+write_rds(clu_1to5_summary_foi, file = here("output", "clu_1to5_summary.rds"))
+write_csv(clu_1to5_sis, file = here("output", "clu_1to5_sis.csv"))
+write_rds(clu_1to5_sis, file = here("output", "clu_1to5_sis.rds"))
+
+# cluster-level, 1-9 only
+write_csv(clu_1to9_summary_foi, file = here("output", "clu_1to9_summary.csv"))
+write_rds(clu_1to9_summary_foi, file = here("output", "clu_1to9_summary.rds"))
+
+# cluster-level, all
+write_csv(clu_all_summary_foi, file = here("output", "clu_all_summary.csv"))
+write_rds(clu_all_summary_foi, file = here("output", "clu_all_summary.rds"))
+write_csv(clu_all_sis, file = here("output", "clu_all_sis.csv"))
+write_rds(clu_all_sis, file = here("output", "clu_all_sis.rds"))
+```
+
+## Session Info
+```{r session info}
+sessionInfo()
+```
