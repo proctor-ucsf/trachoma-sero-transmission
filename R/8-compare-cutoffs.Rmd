@@ -1,0 +1,340 @@
+---
+title: "Monitoring transmission intensity of trachoma with serology"
+subtitle: "Sensitivity analysis to compare different seropositivity cutoffs"
+author: "Contributors: Christine Tedijanto christine.tedijanto@ucsf.edu and Ben Arnold ben.arnold@ucsf.edu"
+date: "Last updated: `r Sys.Date()`"
+output:
+    html_document:
+      code_folding: hide
+      toc: true
+      toc_float: true
+      toc_collapsed: true
+      toc_depth: 3
+number_sections: false
+---
+
+**Objective:** Visualize impact of various seropositivity cutoffs on cluster level mean seroprevalence and seroconversion rates. Examine influence of shifting the cutoff on classification of clusters with infection based on seroprevalence and seroconversion rates identified in other analyses to have 90% sensitivity for identifying clusters with at least one C. trachomatis infection. 
+
+## Setup
+
+```{r setup, message = FALSE}
+#------------------------------
+# Load project config file
+#------------------------------
+library(here)
+source(here("R/0-config.R"))
+
+#------------------------------
+# global variables
+#------------------------------
+
+# minimum number of measurements per cluster
+min_clu_n <- 15
+
+# save figures?
+save_figs <- TRUE
+```
+
+## Read data and saved estimates
+
+```{r prep_data}
+#---------------------------------
+# read the individual level dataset
+#---------------------------------
+ind_df <- read_rds(here("data","trachoma_sero_transmission_analysis_indiv.rds"))
+
+
+#------------------------------
+# read in saved results
+# at the cluster- and study-level
+# created by 2-estimate-foi.Rmd
+#------------------------------
+clu_all  <- read_rds(here("output","clu_all_summary.rds"))
+lyn_all  <- read_rds(here("output","lyn_all_summary.rds")) %>% 
+  rowwise() %>% 
+  mutate(lyn_short = paste(str_split(location_year_name, ",")[[1]][1], year)) %>% 
+  ungroup()
+```
+
+## Set arbitrary cutoffs
+
+```{r}
+# define cutoffs on log10 scale
+temp_cutoffs <- c(-1, -0.5, 0, 0.25, 0.5)
+
+cutoff_df <- ind_df %>% 
+  distinct(location_year_name, cutoff_orig = pgp3_cutoff) %>% 
+  mutate(cutoff_lowest = 10^(log10(cutoff_orig)-1),
+         cutoff_lower = 10^(log10(cutoff_orig)-0.5),
+         cutoff_higher = 10^(log10(cutoff_orig)+0.25),
+         cutoff_highest = 10^(log10(cutoff_orig)+0.5))
+
+# Paul Tol BuRd: https://cran.r-project.org/web/packages/khroma/vignettes/tol.html#sequential-data
+# c("#2166AC", "#4393C3", "#92C5DE", "#D1E5F0", "#F7F7F7", "#FDDBC7", "#F4A582", "#D6604D", "#B2182B")
+cutoff_colors <- c("orig" = "black",
+                   "lowest" = "#2166AC",
+                   "lower" = "#92C5DE",
+                   "higher" = "#F4A582",
+                   "highest" = "#B2182B")
+
+# add cutoffs to individual data
+ind_df_co <- ind_df %>%
+  filter(!is.na(pgp3_cont)) %>%
+  left_join(cutoff_df, by = "location_year_name") %>% 
+  pivot_longer(cols = starts_with("cutoff_"),
+               names_to = "cutoff_type",
+               names_pattern = "cutoff_(.*)",
+               values_to = "cutoff") %>% 
+  dplyr::select(individual_id, cluster_id, location_year_name, age_years,
+                pgp3_cont, pgp3_nonneg, pgp3_bin, pgp3_cutoff,
+                cutoff, cutoff_type) %>% 
+  mutate(pgp3_bin_co = as.numeric(pgp3_cont>cutoff))
+```
+
+**Cutoffs by study population:**
+
+```{r cutoffs all pops, fig.width = 8.5, fig.height = 8.5}
+ind_df_co %>% 
+  ggplot() + 
+  geom_histogram(aes(x = pgp3_nonneg, fill = location_year_name),
+                 color = "black", bins = 50, alpha = 0.9) +
+  scale_fill_manual(values = location_year_name_colors) +
+  geom_vline(data = . %>%  distinct(location_year_name, cutoff_type, cutoff),
+             aes(xintercept = cutoff, color = cutoff_type),
+             lwd = 0.8) +
+  scale_color_manual(values = cutoff_colors) +
+  scale_x_log10(breaks = scales::trans_breaks("log10", function(x) 10^x)(c(1, 1e5)),
+              labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  labs(x = "Pgp3 IgG response (MFI-bg)", y = "Number of children") +
+  facet_wrap(.~location_year_name, ncol = 4,
+             scales = "free_y") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 9),
+        plot.title = element_text(face = "bold"),
+        strip.text = element_text(size = 7))
+```
+
+## Estimate seroprevalence by cutoff
+
+```{r sp}
+sp_co <- ind_df_co %>% 
+  group_by(location_year_name, cluster_id, cutoff_type) %>% 
+  summarise(pgp3_n_pos_co = sum(pgp3_bin_co, na.rm = TRUE),
+            pgp3_n_tested_co = sum(!is.na(pgp3_bin)),
+            .groups = "drop") %>% 
+  mutate(pgp3_prev_co = pgp3_n_pos_co / pgp3_n_tested_co * 100) # multiply by 100 for percent
+```
+
+## Estimate seroconversion by cutoff
+```{r scr}
+# simplified version of scr function in `02-prep-clu-data.Rmd`
+get_scr <- function(curr_lyn, curr_co, curr_clu){
+  
+    temp_df <- ind_df_co %>% 
+      filter(location_year_name == curr_lyn,
+             cutoff_type == curr_co,
+             cluster_id == curr_clu)
+    
+    glm_fit <- tryCatch(glm(pgp3_bin_co~1, offset = log(age_years),
+                          data = temp_df,
+                          family = binomial(link = "cloglog")),
+                      error = function(cond){return(cond$message)},
+                      warning = function(cond){return(cond$message)})
+  
+  if(class(glm_fit)[1] == "character") {
+    ret <- data.frame(location_year_name = curr_lyn,
+                      cutoff_type = curr_co,
+                      cluster_id = curr_clu,
+                      errwarn = glm_fit)
+  } else {
+    ret <- data.frame(location_year_name = curr_lyn,
+                      cutoff_type = curr_co,
+                      cluster_id = curr_clu,
+                      sir_foi_co = as.numeric(exp(glm_fit$coefficients)) * 100) # multiply by 100 for per 100 PY
+  }
+    
+  return(ret)
+}
+
+scr_grid <- ind_df_co %>% distinct(location_year_name, cutoff_type, cluster_id)
+
+scr_co <- mapply(get_scr,
+                 curr_lyn = scr_grid$location_year_name,
+                 curr_co = scr_grid$cutoff_type,
+                 curr_clu = scr_grid$cluster_id,
+                 SIMPLIFY = FALSE) %>% 
+  bind_rows()
+```
+
+## Visualize
+
+```{r}
+cutoff_labels <- data.frame(cutoff_type = c("lowest", "lower", "orig", "higher", "highest"),
+                            cutoff_label = c("cutoff = log10(original)-1", "cutoff = log10(original)-0.5",
+                                             "cutoff = original",
+                                             "cutoff = log10(original)+0.25", "cutoff = log10(original)+0.5"),
+                            cutoff_label_short = c("-1", "-0.5", "", "+0.25", "+0.5"))
+```
+
+### a) cutoff examples
+```{r cutoff example, fig.width = 8.5, fig.height = 2}
+cutoff_fig <- ind_df_co %>%
+  filter(location_year_name %in% c("Wag Hemra, Ethiopia (WUHA) 2019", "Dera, Ethiopia 2017",
+                                          "Kongwa, Tanzania 2018", "Boumalne Dades, Morocco 2019")) %>% 
+  left_join(location_year_name_short, by = "location_year_name") %>% 
+  left_join(cutoff_labels, by = "cutoff_type") %>% 
+  mutate(lyn_short = factor(lyn_short, levels = c("Wag Hemra, ETH (WUHA)", "Kongwa, TZA 2018",
+                                                                                "Dera, ETH", "Boumalne Dades, MAR"))) %>% 
+  ggplot() + 
+  geom_histogram(data = . %>% filter(cutoff_type == "orig"),
+                 aes(x = pgp3_nonneg, fill = location_year_name,
+                     color = location_year_name),
+                 bins = 50, alpha = 0.6) +
+  scale_color_manual(values = location_year_name_colors) +
+  scale_fill_manual(values = location_year_name_colors) +
+  geom_segment(data = . %>%  count(lyn_short, cutoff_type, cutoff),
+             aes(y = 0, yend = 550, x = cutoff, xend = cutoff),
+             lty = "dotted", lwd = 0.5) +
+  geom_segment(data = . %>%  count(lyn_short, cutoff_type, cutoff) %>% filter(cutoff_type == "orig"),
+           aes(y = 0, yend = 550, x = cutoff, xend = cutoff),
+           lwd = 0.6) +
+  geom_label(data = . %>%  count(lyn_short, cutoff_type, cutoff, cutoff_label_short) %>% 
+               # scoot 0.25 and 0.5 to make room
+               mutate(cutoff = ifelse(cutoff_type == "higher", cutoff-600, cutoff),
+                      cutoff = ifelse(cutoff_type == "highest", cutoff+3200, cutoff)),
+             aes(y = 570, x = cutoff, label = cutoff_label_short),
+             size = 2.3, fill = NA, alpha = 0.8, label.size = NA) +
+  scale_x_log10(breaks = scales::trans_breaks("log10", function(x) 10^x)(c(1, 1e5)),
+              labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  labs(x = "Pgp3 IgG response (MFI-bg)", y = "Number of children") +
+  facet_wrap(.~lyn_short, ncol = 4) +
+  coord_cartesian(ylim = c(0,600)) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.title = element_text(size = 11),
+        plot.title = element_text(face = "bold"),
+        plot.margin = margin(0.2,0.2,0.2,0.62,"cm"),
+        strip.text = element_text(size = 9))
+
+cutoff_fig
+```
+
+### b) seroprevalence scatterplot
+```{r sp fig, fig.width = 8.5, fig.height = 2.5}
+sp_co_2 <- sp_co %>% 
+  left_join(clu_all %>% dplyr::select(location_year_name, cluster_id, pgp3_prev, pgp3_n_tested),
+            by = c("location_year_name", "cluster_id")) %>%
+  filter(pgp3_n_tested >= min_clu_n) %>% 
+  mutate(orig_group = as.numeric(pgp3_prev>12.5),
+         new_group = as.numeric(pgp3_prev_co>12.5)) %>% 
+  mutate(change = as.numeric(orig_group != new_group)) %>% 
+  filter(cutoff_type != "orig") %>% 
+  left_join(cutoff_labels, by = "cutoff_type") %>% 
+  mutate(cutoff_label = factor(cutoff_label, levels = c("cutoff = log10(original)-1", "cutoff = log10(original)-0.5",
+                                                      "cutoff = log10(original)+0.25", "cutoff = log10(original)+0.5")))
+  
+sp_change <- sp_co_2 %>% 
+  group_by(cutoff_label) %>% 
+  summarise(change_y = sum(change == 1, na.rm = TRUE),
+            change_n = sum(!is.na(change)),
+            .groups = "drop") %>% 
+  mutate(change_prop = change_y / change_n) %>% 
+  mutate(change_pct = paste0("Recategorized clusters: ", round(change_prop*100,1), "%"))
+
+sp_fig <- sp_co_2 %>% 
+  ggplot(aes(x = pgp3_prev, y = pgp3_prev_co)) +
+  geom_hline(yintercept = 12.5, alpha = 0.7, lwd = 0.3) +
+  geom_vline(xintercept = 12.5, alpha = 0.7, lwd = 0.3) +
+  geom_point(aes(color = as.factor(change)), alpha = 0.4, size = 0.6) +
+  #scale_color_manual(values = location_year_name_colors) +
+  scale_color_manual(values = c("1" = "red", "0" = "darkgrey")) +
+  geom_text(data = sp_change, aes(label = change_pct), x = 65, y = 6,
+            size = 2.5) +
+  facet_grid(cols = vars(cutoff_label)) +
+  labs(x = "Seroprevalence (%) (original cutoff)",
+       y = "Seroprevalence (%)\n(new cutoff)") +
+  coord_cartesian(xlim = c(0,100), ylim = c(0,100)) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.margin = margin(0.2,0.2,0.2,0.5,"cm"))
+
+sp_fig
+```
+
+### c) seroconversion rate scatterplot
+```{r scr fig, fig.width = 8.5, fig.height = 2.5}
+scr_co_2 <- scr_co %>% 
+  left_join(clu_all %>% dplyr::select(location_year_name, cluster_id, sir_foi, pgp3_n_tested, pgp3_prev),
+            by = c("location_year_name", "cluster_id")) %>%
+  left_join(sp_co_2 %>% dplyr::select(location_year_name, cluster_id, cutoff_type, pgp3_n_pos_co),
+            by = c("location_year_name", "cluster_id", "cutoff_type")) %>% 
+  mutate(sir_foi = ifelse(pgp3_prev==0,0,sir_foi)) %>% 
+  mutate(sir_foi_co = ifelse(pgp3_n_pos_co==0,0,sir_foi_co)) %>% 
+  mutate(sir_foi = ifelse(is.na(sir_foi),0,sir_foi)) %>% 
+  mutate(sir_foi = sir_foi*100) %>% 
+  filter(pgp3_n_tested >= min_clu_n) %>% 
+  mutate(orig_group = as.numeric(sir_foi>3),
+         new_group = as.numeric(sir_foi_co>3)) %>% 
+  mutate(change = as.numeric(orig_group != new_group)) %>% 
+  filter(cutoff_type != "orig") %>% 
+  left_join(cutoff_labels, by = "cutoff_type") %>% 
+  mutate(cutoff_label = factor(cutoff_label, levels = c("cutoff = log10(original)-1", "cutoff = log10(original)-0.5",
+                                                      "cutoff = log10(original)+0.25", "cutoff = log10(original)+0.5")))
+
+scr_change <- scr_co_2 %>% 
+  group_by(cutoff_label) %>% 
+  summarise(change_y = sum(change == 1, na.rm = TRUE),
+            change_n = sum(!is.na(change)),
+            .groups = "drop") %>% 
+  mutate(change_prop = change_y / change_n) %>% 
+  mutate(change_pct = paste0("Recategorized clusters: ", round(change_prop*100,1), "%"))
+
+scr_fig <- scr_co_2 %>% 
+  ggplot(aes(x = sir_foi, y = sir_foi_co)) +
+  geom_hline(yintercept = 3, alpha = 0.7, lwd = 0.3) +
+  geom_vline(xintercept = 3, alpha = 0.7, lwd = 0.3) +
+  geom_point(aes(color = as.factor(change)), alpha = 0.4, size = 0.6) +
+  #scale_color_manual(values = location_year_name_colors) +
+  scale_color_manual(values = c("1" = "red", "0" = "darkgrey")) +
+  geom_text(data = scr_change, aes(label = change_pct), x = 32, y = 0.5,
+            size = 2.5) +
+  coord_cartesian(xlim = c(0,50), ylim = c(0,50)) +
+  facet_grid(cols = vars(cutoff_label)) +
+  labs(x = "Seroconversion rate per 100 PY (original cutoff)",
+       y = "Seroconversion rate\nper 100 PY (new cutoff)") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.margin = margin(0.2,0.2,0.2,0.5,"cm"))
+
+scr_fig
+
+# look into NAs
+# scr_co_2 %>% 
+#   left_join(sp_co_2 %>% 
+#               mutate(pgp3_n_pos = round(pgp3_prev*pgp3_n_tested/100)) %>% 
+#               dplyr::select(location_year_name, cluster_id, pgp3_n_pos, pgp3_n_pos_co, pgp3_prev)) %>% 
+#   filter(is.na(sir_foi) | is.na(sir_foi_co)) %>% View()
+```
+
+### Combine and save
+
+```{r save fig, fig.width = 8.5, fig.height = 7}
+combined_fig <- plot_grid(cutoff_fig, sp_fig, scr_fig, ncol = 1, 
+                          rel_heights = c(0.8, 1, 1), labels = 'auto')
+
+combined_fig
+
+if(save_figs) {
+  ggsave(filename = here::here("output", "figS7_cutoff_fig.png"),
+       combined_fig,
+       width = 8.5, height = 7, units = "in")
+}
+
+```
+
+
+## Session Info
+```{r session info}
+sessionInfo()
+```
