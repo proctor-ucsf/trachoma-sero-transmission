@@ -1,0 +1,495 @@
+---
+title: "Trachoma endgame serology: compare trachoma indicators"
+author: "Christine Tedijanto christine.tedijanto@ucsf.edu"
+date: "Last updated: `r Sys.Date()`"
+output:
+    html_document:
+      code_folding: hide
+      toc: true
+      toc_float: true
+      toc_collapsed: true
+      toc_depth: 3
+number_sections: false
+---
+
+**Objective:** Estimate correlations between trachoma indicators and visualize.
+
+```{r setup, include=FALSE}
+#------------------------------
+# Load project config file
+#------------------------------
+library(here)
+source(here("R/0-config.R"))
+
+#------------------------------
+# global variables
+#------------------------------
+
+# minimum number of measurements per cluster
+# see 1-trachoma-sero-transmission-make-datasets.Rmd
+# for examination of minimum cluster size. 15 chosen
+min_clu_n <- 15 
+
+# save figures?
+save_figs <- TRUE 
+```
+
+
+```{r read data}
+
+#------------------------------
+# load cluster-level estimates
+# these estimates were generated
+# in the script 2-estimate-foi.Rmd
+#------------------------------
+clu_all  <- read_rds(here("output", "clu_all_summary.rds")) 
+clu_1to5 <- read_rds(here("output", "clu_1to5_summary.rds")) 
+lyn_all  <- read_rds(here("output", "lyn_all_summary.rds"))
+
+#------------------------------
+# encode Carter Center overall
+# study-level PCR prevalence
+# estimates
+# and join to the location-year-name (lyn)
+# data
+#------------------------------
+cc_pcr_manual <- data.frame(location_year_name = c("Andabet, Ethiopia 2017",
+                                                   "Dera, Ethiopia 2017",
+                                                   "Woreta town, Ethiopia 2017",
+                                                   "Alefa, Ethiopia 2017"),
+                            prev = c(11.3, 0, 0, 0),
+                            stringsAsFactors = FALSE)
+
+lyn_all <- lyn_all %>%
+  left_join(cc_pcr_manual, by = "location_year_name") %>% 
+  mutate(pcr_prev_median = coalesce(prev, pcr_prev_median)) %>% 
+  dplyr::select(-prev)
+
+```
+
+### Bootstrap setup
+
+```{r bootstrap}
+n_bs <- 1000
+
+set.seed(123)
+bs_list <- lapply(c(1:n_bs),
+                  function(x){
+                    clu_all %>% 
+                      distinct(location_year_name, cluster_id) %>%
+                      group_by(location_year_name) %>%
+                      mutate(!!paste0("bs_", x) := sample(cluster_id, size = n(), replace = TRUE)) %>% 
+                      ungroup() %>% 
+                      dplyr::select(starts_with("bs"))
+                  }) %>% bind_cols()
+
+bs_df <- clu_all %>% 
+  distinct(location_year_name, cluster_id) %>% 
+  bind_cols(bs_list)
+
+get_bs_cor <- function(temp_bs_df, x_var, y_var){
+  
+  temp_cor <- lapply(c(1:n_bs),
+                     function(i){
+                       temp_clu_df <- bs_df %>% 
+                         dplyr::select(location_year_name, bs = eval(paste0("bs_", i))) %>% 
+                         left_join(temp_bs_df %>% dplyr::select(cluster_id, pgp3_n_tested, x = eval(x_var), y = eval(y_var)),
+                                   by = c("bs"="cluster_id"))
+                       
+                       temp_lyn_df <- temp_clu_df %>% 
+                         group_by(location_year_name) %>% 
+                         summarise(pgp3_n_tested = sum(pgp3_n_tested, na.rm = TRUE),
+                                   x_median = median(x, na.rm = TRUE),
+                                   y_median = median(y, na.rm = TRUE),
+                                   .groups = "drop")
+                       
+                       cor_clu_df <- temp_clu_df %>% 
+                         filter(!is.na(x), !is.na(y)) %>% 
+                         filter(location_year_name %ni% c("Alefa, Ethiopia 2017", "Dera, Ethiopia 2017",
+                                                          "Woreta town, Ethiopia 2017", "Andabet, Ethiopia 2017")) %>% 
+                         group_by(location_year_name) %>%
+                         summarise(cor = tryCatch({cor(x, y, method = "pearson", use = "complete.obs")},
+                                                  error=function(cond){0},
+                                                  warning=function(cond){0}),
+                                   n = n(),
+                                   .groups = "drop")
+                       
+                       data.frame(clu_cor = weighted.mean(cor_clu_df$cor, cor_clu_df$n),
+                                  lyn_cor = cor(temp_lyn_df$x_median, temp_lyn_df$y_median, use = "complete.obs", method = "pearson"))
+                       
+                       # data.frame(clu_cor = wCorr::weightedCorr(temp_clu_df$x, temp_clu_df$y, weights = pgp3_n_tested, method = "Spearman"),
+                       #            lyn_cor = wCorr::weightedCorr(temp_lyn_df$x_median, temp_lyn_df$y_median, weights = pgp3_n_tested, method = "Spearman"))
+                       }) %>% bind_rows()
+}
+```
+
+### Figure setup
+
+```{r}
+get_trach_compare_fig <- function(df, x_var, x_n, x_lab, x_max, y_var, y_n, y_lab, incl_pop_pts = FALSE, incl_xy = FALSE, incl_cc = TRUE){
+  
+  ret <- df %>% 
+    ggplot() +
+    geom_point(data = . %>%
+                 filter(get(x_n)>=min_clu_n, get(y_n)>=min_clu_n) %>% 
+                 filter(!is.na(get(x_var)), !is.na(get(y_var))),
+               aes(x = get(x_var), y = get(y_var),
+                   color = location_year_name),
+               alpha = 0.5, size = 1,
+               show.legend = FALSE) +
+    scale_fill_manual(values = location_year_name_colors) +
+    scale_color_manual(values = location_year_name_colors) +
+    labs(x = x_lab, y = y_lab) +
+    theme_minimal() +
+    lims(x = c(0, x_max), y = c(0,100)) +
+    theme(axis.title = element_text(size = 11),
+          axis.text = element_text(size = 10),
+          legend.position = "none",
+          legend.title = element_blank())
+  
+  if(incl_xy){
+    ret <- ret + 
+      geom_line(data = data.frame(x_line = c(0,100), y_line = c(0,100)), aes(x = x_line, y = y_line), color = "black", lty = "dotted")
+  }
+  
+  temp_bs_df <- df %>% 
+    left_join(cc_pcr_manual, by = "location_year_name") %>% 
+    mutate(pcr_prev = coalesce(prev, pcr_prev)) %>% 
+    mutate(pcr_n_tested = ifelse(study_id == "TCC-Ethiopia2017", pgp3_n_tested, pcr_n_tested)) %>%
+    mutate(tf_n_tested = ifelse(study_id == "TCC-Ethiopia2017", pgp3_n_tested, tf_n_tested)) %>%
+    filter(get(x_n)>=min_clu_n, get(y_n)>=min_clu_n) %>%
+    filter(!is.na(get(x_var)), !is.na(get(y_var)))
+  
+  bs_cor <- get_bs_cor(temp_bs_df = temp_bs_df, x_var = x_var, y_var = y_var)
+  
+  clu_cor_df <- temp_bs_df %>%
+    filter(location_year_name %ni% c("Alefa, Ethiopia 2017", "Dera, Ethiopia 2017",
+                                     "Woreta town, Ethiopia 2017", "Andabet, Ethiopia 2017")) %>% 
+    group_by(location_year_name) %>%
+    summarise(cor = tryCatch({cor(get(x_var), get(y_var), method = "pearson", use = "complete.obs")},
+                             error=function(cond){0},
+                             warning=function(cond){0}),
+              n = n(),
+              .groups = "drop")
+  clu_cor <- weighted.mean(clu_cor_df$cor, clu_cor_df$n) %>% round(digits = 2)
+  # clu_cor <- cor(temp_bs_df %>% pull(get(x_var)),
+  #                temp_bs_df %>% pull(get(y_var)),
+  #                use = "complete.obs", method = "pearson") %>% round(digits = 2)
+  # clu_cor <- wCorr::weightedCorr(temp_bs_df %>% pull(get(x_var)),
+  #                                temp_bs_df %>% pull(get(y_var)),
+  #                                weights = temp_bs_df %>% pull(pgp3_n_tested),
+  #                                method = "Spearman") %>% round(digits = 2)
+  clu_cor_2.5 <- quantile(bs_cor$clu_cor, 0.025, na.rm=TRUE) %>% round(2)
+  clu_cor_97.5 <- quantile(bs_cor$clu_cor, 0.975, na.rm=TRUE) %>% round(2)
+  
+  ret <- ret +
+   geom_label(data = data.frame(x = 1, y = 1),
+              #label = paste0("Cluster-level \u03C1 (95% CI): ", clu_cor, " (", clu_cor_2.5, ",",clu_cor_97.5, ")"),
+              label = paste0("Cluster-level r (95% CI): ", clu_cor, " (", clu_cor_2.5, ",",clu_cor_97.5, ")"),
+              x = 0, y = 97, size = 2.5, color = "black", hjust = 0, fill = "white", alpha = 0.8,
+              label.size = NA)
+  
+  if(incl_pop_pts){
+    
+    temp_lyn_df <- temp_bs_df %>% 
+      group_by(location_year_name) %>% 
+      summarise(pgp3_n_tested = sum(pgp3_n_tested, na.rm = TRUE),
+                x_median = median(get(x_var), na.rm = TRUE),
+                y_median = median(get(y_var), na.rm = TRUE),
+                .groups = "drop") 
+    
+    if(!incl_cc){
+      temp_lyn_df <- temp_lyn_df %>% 
+        filter(location_year_name %ni% c("Alefa, Ethiopia 2017", "Dera, Ethiopia 2017",
+                                     "Woreta town, Ethiopia 2017", "Andabet, Ethiopia 2017"))
+    }
+    
+    lyn_cor <- cor(temp_lyn_df$x_median, temp_lyn_df$y_median,
+                   use = "complete.obs", method = "pearson") %>% round(digits = 2)
+    # lyn_cor <- wCorr::weightedCorr(temp_lyn_df$x_median,
+    #                                temp_lyn_df$y_median,
+    #                                weights = temp_lyn_df$pgp3_n_tested,
+    #                                method = "Spearman") %>% round(digits = 2)
+    lyn_cor_2.5 <- quantile(bs_cor$lyn_cor, 0.025, na.rm=TRUE) %>% round(2)
+    lyn_cor_97.5 <- quantile(bs_cor$lyn_cor, 0.975, na.rm=TRUE) %>% round(2)
+      
+    ret <- ret +
+      geom_point(data = temp_lyn_df,
+               aes(x = x_median, y = y_median,
+                   fill = location_year_name),
+               color = "black", pch = 21, alpha = 0.9,
+               size = 2.5) +
+      geom_label(data = data.frame(x = 1, y = 1),
+              #label = paste0("Population-level \u03C1 (95% CI): ", lyn_cor, " (", lyn_cor_2.5, ",",lyn_cor_97.5, ")"),
+              label = paste0("Population-level r (95% CI): ", lyn_cor, " (", lyn_cor_2.5, ",",lyn_cor_97.5, ")"),
+              x = 0, y = 88, size = 2.5, color = "black", hjust = 0, fill = "white", alpha = 0.8,
+              label.size = NA)
+  }
+
+  return(ret)
+}
+```
+
+### Test for heteroscedasticity in correlations
+
+```{r}
+# approach to calculate Q based on Field, 2001
+temp_df <- clu_all %>%
+  filter(pcr_n_tested>=min_clu_n, pgp3_n_tested>=min_clu_n,
+         !is.na(pcr_prev), !is.na(pgp3_prev)) %>% 
+  group_by(location_year_name) %>% 
+  summarise(cor = cor(pgp3_prev, pcr_prev, method = "pearson",
+                      use = "complete.obs"),
+            n = n(),
+            .groups = "drop") %>% 
+  mutate(weights = n-3,
+         z = 0.5*log((1+cor)/(1-cor)))
+
+zbar <- weighted.mean(x = temp_df$z, w  = temp_df$weights)
+
+q <- sum(temp_df$weights * (temp_df$z - zbar)^2)
+
+1-pchisq(q = q, df = nrow(temp_df)-1)
+```
+
+### Calculate overall correlation
+
+```{r}
+# based on transformation
+trans_r <- (exp(2*zbar)-1)/(exp(2*zbar)+1)
+
+# based on untransformed
+untrans_r <- weighted.mean(x = temp_df$cor, w  = temp_df$n)
+```
+
+## Figures 4, 5 and S4. Correlation between indicators
+
+```{r estimate correlations and bootstrap 95pct CIs, fig.width = 8.5, fig.height = 8}
+sp_all_fig <- get_trach_compare_fig(df = clu_all,
+                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE) +
+  ggtitle("All") + theme(plot.title = element_text(face = "bold"))
+
+tf_all_fig <- get_trach_compare_fig(df = clu_all,
+                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE)
+
+sp_all_fig_mda <- get_trach_compare_fig(df = clu_all,
+                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE) +
+  ggtitle("All") + theme(plot.title = element_text(face = "bold"))
+
+tf_all_fig_mda <- get_trach_compare_fig(df = clu_all,
+                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE)
+
+sir_all_fig <- get_trach_compare_fig(df = clu_all %>% mutate(sir_foi=sir_foi*100),
+                      x_var = "sir_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY",
+                      x_max = 50, # note that some are cutoff! need to list # of excluded outliers
+                      y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE) +
+  ggtitle("All") + theme(plot.title = element_text(face = "bold"))
+
+sis_all_fig <- get_trach_compare_fig(df = clu_all %>% mutate(sis_foi=sis_foi*100),
+                      x_var = "sis_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY\n(seroreversion rate = 6.6 per 100 PY)",
+                      x_max = 100, # note that some are cutoff! need to list # of excluded outliers
+                      y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE) 
+
+sp_1to9_fig <- get_trach_compare_fig(df = clu_all %>% filter(location_year_name %ni% c("Wag Hemra, Ethiopia (TAITU) 2018",
+                                                                                        "Matameye, Niger 2013")),
+                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE, incl_cc = FALSE) +
+  ggtitle("1-9-year-olds") + theme(plot.title = element_text(face = "bold"))
+
+sp_1to5_fig <- get_trach_compare_fig(df = clu_1to5,
+                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE) +
+  ggtitle("1-5-year-olds") + theme(plot.title = element_text(face = "bold"))
+
+sp_MDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 1),
+                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE) +
+  ggtitle("MDA in past year") + theme(plot.title = element_text(face = "bold"))
+
+sp_noMDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 0),
+                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE) +
+  ggtitle("No MDA in past year") + theme(plot.title = element_text(face = "bold"))
+
+tf_MDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 1),
+                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE)
+
+tf_noMDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 0),
+                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE)
+
+tf_1to9_fig <- get_trach_compare_fig(df = clu_all %>% filter(location_year_name %ni% c("Wag Hemra, Ethiopia (TAITU) 2018",
+                                                                                        "Matameye, Niger 2013")),
+                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE, incl_cc = FALSE)
+
+tf_1to5_fig <- get_trach_compare_fig(df = clu_1to5,
+                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
+                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_xy = TRUE)
+
+sir_1to9_fig <- get_trach_compare_fig(df = clu_all %>% filter(location_year_name %ni% c("Wag Hemra, Ethiopia (TAITU) 2018",
+                                                                                        "Matameye, Niger 2013")) %>% mutate(sir_foi=sir_foi*100),
+                      x_var = "sir_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY",
+                      x_max = 50, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE, incl_cc = FALSE) +
+  ggtitle("1-9-year-olds") + theme(plot.title = element_text(face = "bold"))
+
+sir_1to5_fig <- get_trach_compare_fig(df = clu_1to5 %>% mutate(sir_foi=sir_foi*100),
+                      x_var = "sir_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY",
+                      x_max = 50, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE) +
+  ggtitle("1-5-year-olds") + theme(plot.title = element_text(face = "bold"))
+
+sir_MDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 1) %>% mutate(sir_foi=sir_foi*100),
+                      x_var = "sir_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY",
+                      x_max = 50, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE) +
+  ggtitle("MDA in past year") + theme(plot.title = element_text(face = "bold"))
+
+sir_noMDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 0)  %>% mutate(sir_foi=sir_foi*100),
+                      x_var = "sir_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY",
+                      x_max = 50, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
+                      incl_pop_pts = TRUE) +
+  ggtitle("No MDA in past year") + theme(plot.title = element_text(face = "bold"))
+```
+
+### Create legend
+
+```{r legend}
+# extract legend
+fig4_lyn <- lyn_all %>%
+  filter(!is.na(pcr_prev_median)) %>%
+  pull(location_year_name)
+
+# lyn_left <- c("Alefa, Ethiopia 2017", "Kongwa, Tanzania 2018", "Kongwa, Tanzania 2013",
+#               "Wag Hemra, Ethiopia (WUHA) 2019", "Wag Hemra, Ethiopia (TAITU) 2018")
+# lyn_right <- c("Andabet, Ethiopia 2017", "Dera, Ethiopia 2017", "Woreta town, Ethiopia 2017",
+#                "Wag Hemra, Ethiopia (WUHA) 2016", "Matameye, Niger (PRET) 2013",
+#                "Chikwawa, Malawi 2014", "Mchinji, Malawi 2014")
+# title_left <- "No MDA in the past year"
+# title_right <- "MDA in the past year"
+title_right <- ""
+# rw <- c(1,1.5)
+  
+# LEFT
+# my_ggp_left <- ggplot(data = lyn_all %>%
+#                    filter(location_year_name %in% lyn_left)) +
+#   geom_point(aes(x = pgp3_prev_median, y = sir_foi_median, fill = location_year_name),
+#              pch = 21, color = "black", size = 2.5) +
+#   scale_fill_manual(values = location_year_name_colors[lyn_left],
+#                     labels = location_year_name_short %>% filter(location_year_name %in% lyn_left) %>% deframe()) +
+#   theme_minimal() +
+#   labs(fill = title_left) +
+#   theme(legend.title = element_text(face = "bold", size = 9),
+#         legend.key.height = unit(0.5, "cm"),
+#         legend.key.width = unit(0.6, "cm"),
+#         legend.text = element_text(size = 7),
+#         legend.title.align=0.5) +
+#   guides(fill = guide_legend(nrow = 3))
+# 
+# step1 <- ggplot_gtable(ggplot_build(my_ggp_left))
+# step2 <- which(sapply(step1$grobs, function(x) x$name) == "guide-box")
+# fig4_step3_left <- step3 <- step1$grobs[[step2]]
+
+# RIGHT
+my_ggp_right <- ggplot(data = lyn_all %>%
+                     filter(location_year_name %in% fig4_lyn)) +
+  geom_point(aes(x = pgp3_prev_median, y = sir_foi_median, fill = location_year_name),
+             pch = 21, color = "black", size = 2.5) +
+  scale_fill_manual(values = location_year_name_colors[fig4_lyn],
+                    labels = location_year_name_short %>% filter(location_year_name %in% fig4_lyn) %>% deframe()) +
+  theme_minimal() +
+  labs(fill = title_right) +
+  theme(legend.title = element_text(face = "bold", size = 9),
+        legend.key.height = unit(0.5, "cm"),
+        legend.key.width = unit(0.6, "cm"),
+        legend.text = element_text(size = 7),
+        legend.title.align=0.5) +
+  guides(fill = guide_legend(nrow = 2))
+
+step1 <- ggplot_gtable(ggplot_build(my_ggp_right))
+step2 <- which(sapply(step1$grobs, function(x) x$name) == "guide-box")
+fig4_step3 <- step3 <- step1$grobs[[step2]]
+
+# TOGETHER
+#fig4_step3 <- plot_grid(fig4_step3_left, fig4_step3_right, nrow = 1, rel_widths = rw)
+
+```
+
+### Combine figures
+
+Figure 4
+
+```{r combine figs, fig.width = 8.5, fig.height = 5.4}
+fig4 <- plot_grid(plot_grid(sp_all_fig_mda, sp_noMDA_fig, sp_MDA_fig, nrow = 1),
+                  plot_grid(tf_all_fig_mda, tf_noMDA_fig, tf_MDA_fig, nrow = 1),
+                  fig4_step3,
+                  ncol = 1, rel_heights = c(1, 0.9, 0.2), labels = c('a', 'b', ""))
+
+fig4
+
+if(save_figs){
+  ggsave(filename = here("output", "fig4_sero_tf_mda_pearson_wt.png"),
+         fig4,
+         width = 8.5, height = 5.4, units = "in")
+}
+```
+
+Figure 5
+
+```{r figs4, fig.width = 8.5, fig.height = 5.4}
+fig5 <- plot_grid(plot_grid(sp_all_fig, sp_1to9_fig, sp_1to5_fig, nrow = 1),
+                  plot_grid(tf_all_fig, tf_1to9_fig, tf_1to5_fig, nrow = 1),
+                  fig4_step3,
+                  ncol = 1, rel_heights = c(1, 0.9, 0.2), labels = c('a', 'b', ""))
+
+fig5
+
+if(save_figs){
+  ggsave(filename = here("output", "fig5_sero_tf_age_pearson_wt.png"),
+         fig5,
+         width = 8.5, height = 5.4, units = "in")
+}
+```
+
+Figure S4
+
+```{r figS4, fig.width = 8.5, fig.height = 5.4}
+figS4 <- plot_grid(plot_grid(sir_all_fig, sir_noMDA_fig, sir_MDA_fig, nrow = 1),
+                  plot_grid(sir_all_fig, sir_1to9_fig, sir_1to5_fig, nrow = 1),
+                  fig4_step3,
+                  ncol = 1, rel_heights = c(1, 0.93, 0.2), labels = c('a', 'b', ""))
+
+figS4
+
+if(save_figs){
+  ggsave(filename = here("output", "figS4_sir_pcr_pearson_wt.png"),
+         figS4,
+         width = 8.5, height = 5.7, units = "in")
+ }
+```
+
+
+# Session info
+```{r session info}
+sessionInfo()
+```
