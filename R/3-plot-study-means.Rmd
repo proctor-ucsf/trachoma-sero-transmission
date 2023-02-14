@@ -1,0 +1,435 @@
+---
+title: "Monitoring transmission intensity of trachoma with serology"
+subtitle: "Summarize study means"
+author: "Contributors: Christine Tedijanto christine.tedijanto@ucsf.edu and Ben Arnold ben.arnold@ucsf.edu"
+date: "Last updated: `r Sys.Date()`"
+output:
+    html_document:
+      code_folding: hide
+      toc: true
+      toc_float: true
+      toc_collapsed: true
+      toc_depth: 3
+number_sections: false
+---
+
+**Objective:** Plot distributions of study cluster means for seroprevalence, PCR prevalence, and TF prevalence.
+
+
+## Setup
+
+```{r setup, message = FALSE}
+#------------------------------
+# Load project config file
+#------------------------------
+library(here)
+source(here("R/0-config.R"))
+```
+
+```{r figure_prep}
+
+#------------------------------
+# global variables
+#------------------------------
+# set shared theme for figures
+summary_stat_theme <- list(facet_wrap(.~location_year_name, ncol = 4),
+                           theme_minimal(),
+                           scale_fill_manual(values = location_year_name_colors),
+                           scale_color_manual(values = location_year_name_colors),
+                           theme(legend.position = "none"))
+
+# minimum number of measurements per cluster
+min_clu_n <- 15
+
+# save figures to output?
+save_figs <- TRUE
+```
+
+## Read data and stored estimates
+
+```{r read data}
+#------------------------------
+# load analysis datasets
+#------------------------------
+# read individual-level dataset
+# filter to clusters with ≥ 15 pgp3 measurements
+ind_df <- read_rds(here("data", "trachoma_sero_transmission_analysis_indiv.rds")) %>%
+  filter(pgp3_minobs)
+
+# read cluster-level dataset
+# filter to clusters with ≥ 15 pgp3 measurements
+clu_df <- read_rds(here("data","trachoma_sero_transmission_analysis_cluster.rds")) %>%
+  filter(pgp3_minobs) 
+
+# read study-level dataset
+study_df <- read_rds(here("data","trachoma_sero_transmission_analysis_study.rds"))
+
+#------------------------------
+# read in FOI estimates
+# created by 2-estimate-foi.Rmd
+#------------------------------
+clu_all_summary_foi <- read_rds(here("output","clu_all_summary.rds"))
+lyn_all_summary_foi <- read_rds(here("output","lyn_all_summary.rds"))
+
+# join study-level information to the study-level FOI estimates
+lyn_all_summary_foi <- lyn_all_summary_foi %>%
+  left_join(study_df %>% select(location_year_name, endemic_cat, n, m, location_year_name_nm), by=c("location_year_name"))
+```
+
+
+## Distributions by location + year
+
+### Fig S2. Age distribution by location + year
+
+```{r, fig.width = 8.5, fig.height = 6}
+age_hist <- ind_df %>%
+  # limit to observations with Pgp3 measurements
+  filter(!is.na(pgp3_bin)) %>% 
+  ggplot() +
+  geom_histogram(aes(x = age_years, fill = location_year_name),
+           color = "black", binwidth = 1, alpha = 0.8) +
+  scale_x_continuous(limits = c(0,10), breaks = c(1:9)) +
+  labs(x = "Age (years)", y = "Number of children") +
+  summary_stat_theme +
+  theme(strip.text = element_text(size = 8))
+
+age_hist
+
+if(save_figs){
+  ggsave(filename = here::here("output", "figS2_age_dist.png"),
+         plot = age_hist,
+         width = 8.5, height = 6.5)
+}
+```
+
+### pgp3 response distribution by location + year
+
+```{r, fig.width = 8.5, fig.height = 7}
+pgp3_dist <- ind_df %>%
+  filter(!is.na(pgp3_nonneg)) %>%
+  ggplot() +
+  geom_histogram(aes(x = pgp3_nonneg, fill = location_year_name),
+           color = "black", binwidth = 0.15) +
+  geom_vline(data = . %>% distinct(location_year_name, pgp3_cutoff),
+             aes(xintercept = pgp3_cutoff)) +
+  scale_x_log10(breaks = scales::trans_breaks("log10", function(x) 10^x)(c(1, 1e5)),
+                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  labs(x = "Pgp3 IgG response (MFI-bg)",
+       y = "Number of children") +
+  summary_stat_theme +
+  facet_wrap(.~location_year_name, ncol = 4, scales = "free_y")
+
+pgp3_dist
+```
+
+
+### Figure S1. Cluster-level sample sizes
+
+```{r, fig.width = 8.5, fig.height = 6.5}
+clu_n <- clu_df %>%
+  ggplot() +
+  geom_histogram(aes(x = pgp3_n_tested, fill = location_year_name),
+                 color = "black", binwidth = 5, alpha = 0.8) +
+  scale_x_continuous(breaks=seq(0,300,by=50)) + 
+  labs(x = "Number of children assessed for serology outcomes",
+       y = "Number of clusters") +
+  summary_stat_theme +
+  theme(strip.text = element_text(size = 8))
+
+clu_n
+
+if(save_figs){
+  ggsave(filename = here::here("output", "figS1_clu_sample_sizes.png"),
+         plot = clu_n,
+         width = 8.5, height = 6.5)
+}
+```
+
+### Cluster-level PCR
+
+```{r, fig.width = 8.5, fig.height = 4}
+clu_df %>%
+  filter(!is.na(pcr_prev)) %>%
+  ggplot() +
+  geom_histogram(aes(x = pcr_prev, fill = location_year_name),
+                 color = "black", binwidth = 2) +
+  geom_vline(data = study_df %>% filter(!is.na(pcr_prev_mean)), aes(xintercept = pcr_prev_mean)) +
+  geom_vline(data = study_df %>% filter(!is.na(pcr_prev_median)), aes(xintercept = pcr_prev_median), lty = "dashed") +
+  labs(x = "cluster-level pcr prevalence (%)") +
+  summary_stat_theme
+```
+
+### Cluster-level TF
+
+```{r, fig.width = 8.5, fig.height = 5}
+clu_df %>% 
+  filter(!is.na(tf_prev)) %>% 
+  ggplot() +
+  geom_histogram(aes(x = tf_prev, fill = location_year_name),
+                 color = "black", binwidth = 2) +
+  geom_vline(data = study_df %>% filter(!is.na(tf_prev_mean)), aes(xintercept = tf_prev_mean)) +
+  geom_vline(data = study_df %>% filter(!is.na(tf_prev_median)), aes(xintercept = tf_prev_median), lty = "dashed") +
+  geom_vline(xintercept = 5, lwd = 0.75, color = "red") +
+  labs(x = "cluster-level TF prevalence (%)") +
+  summary_stat_theme +
+  facet_wrap(.~location_year_name, ncol = 4, scales = "free_y")
+```
+
+### Cluster-level TI
+
+```{r, fig.width = 8.5, fig.height = 5}
+clu_df %>% 
+  filter(!is.na(ti_prev)) %>% 
+  ggplot() +
+  geom_histogram(aes(x = ti_prev, fill = location_year_name),
+                 color = "black", binwidth = 3) +
+  geom_vline(data = study_df %>% filter(!is.na(ti_prev_mean)), aes(xintercept = ti_prev_mean)) +
+  geom_vline(data = study_df %>% filter(!is.na(ti_prev_median)), aes(xintercept = ti_prev_median), lty = "dashed") +
+  labs(x = "cluster-level TI prevalence (%)") +
+  summary_stat_theme +
+  facet_wrap(.~location_year_name, ncol = 4, scales = "free_y")
+```
+
+### Cluster-level seroprevalence
+
+```{r, fig.width = 8.5, fig.height = 7}
+clu_df %>% 
+  filter(!is.na(pgp3_prev)) %>% 
+  ggplot() +
+  geom_histogram(aes(x = pgp3_prev, fill = location_year_name),
+                 color = "black", binwidth = 2) +
+  geom_vline(data = study_df %>% filter(!is.na(pgp3_prev_mean)), aes(xintercept = pgp3_prev_mean)) +
+  geom_vline(data = study_df %>% filter(!is.na(pgp3_prev_median)), aes(xintercept = pgp3_prev_median), lty = "dashed") +
+  labs(x = "cluster-level pgp3 seroprevalence (%)") +
+  summary_stat_theme +
+  facet_wrap(.~location_year_name, ncol = 4, scales = "free_y")
+```
+
+### Cluster-level mean antibody levels
+
+```{r, fig.width = 8.5, fig.height = 7}
+clu_df %>%
+  filter(!is.na(pgp3_log10mean)) %>% 
+  ggplot() +
+  geom_histogram(aes(x = pgp3_log10mean, fill = location_year_name),
+                 color = "black", binwidth = 0.1) +
+  geom_vline(data = study_df %>% filter(!is.na(pgp3_log10mean_mean)), aes(xintercept = pgp3_log10mean_mean)) +
+  geom_vline(data = study_df %>% filter(!is.na(pgp3_log10mean_median)), aes(xintercept = pgp3_log10mean_median), lty = "dashed") +
+  labs(x = "cluster-level anti-pgp3 antibody response (log10 MFI-bg)") +
+  summary_stat_theme
+```
+
+
+## Figure 1
+
+For each study, summarize the distribution of cluster-level Pgp3 seroprevalence, PCR infection prevalence, and TF prevalence.  Plot cluster level values along with box plots (25th, 50th, 75th percentiles) of the distributions.
+
+```{r}
+cc_pcr_manual <- data.frame(location_year_name = c("Andabet, Ethiopia 2017",
+                                                   "Dera, Ethiopia 2017",
+                                                   "Woreta town, Ethiopia 2017",
+                                                   "Alefa, Ethiopia 2017"),
+                            prev = c(11.3, 0, 0, 0),
+                            stringsAsFactors = FALSE)
+
+## create age-seroprevalence curve visualization -----
+# 3 panels (from L to R): seroprevalence, pcr, TF
+get_age_sero_curve_fig <- function(incl_legend){
+  
+  lyn_recent <- ind_df %>%
+    left_join(study_df %>% distinct(location_year_name), by = c("location_year_name")) %>% 
+    pull(location_year_name) %>%
+    unique()
+  
+  # create shared theme
+  temp_theme <- list(scale_color_manual(values = location_year_name_colors),
+                     scale_fill_manual(values = location_year_name_colors),
+                     guides(color = FALSE, fill = FALSE),
+                     theme_minimal(),
+                     theme(legend.position = "none"))
+  
+  # if(curr_endemic_cat == "hyperendemic (median TF >20%)"){temp_cex = 3}
+  # else if(curr_endemic_cat == "mesoendemic (median TF 5-20%)"){temp_cex = 2}
+  # else if(curr_endemic_cat == "hypoendemic (median TF <5%)"){temp_cex = 1.3}
+  
+  temp_cex <- 2
+  
+  # temp_lyn_order <- lyn_all_summary_foi %>% 
+  #   filter(location_year_name %in% lyn_recent) %>% 
+  #   #arrange(desc(sir_foi)) %>% 
+  #   # sort studies by median seroprevalence
+  #   # two studies have basically identical median seroprevalence 
+  #   # in each of the highest transmission (TAITU, Kongwa 2013), 
+  #   # and intermediate transmission (Dera Ethiopia, Agdaz Morocco) settings
+  #   # but visually there is more variance in TAITU  and Dera so order them higher
+  #   mutate(higher_var = ifelse(location_year_name %in% c("Wag Hemra, Ethiopia (WUHA) 2019","Andabet, Ethiopia 2017","Wag Hemra, Ethiopia (TAITU) 2018"),1,0),
+  #          lower_var = ifelse(location_year_name %in% c("Agdaz, Morocco 2019"),1,0)
+  #          ) %>%
+  #   arrange(endemic_cat,desc(higher_var),lower_var,
+  #           desc(pgp3_prev_median), desc(pcr_prev_median), desc(tf_prev_median)) %>% 
+  #   pull(location_year_name)
+  
+  # order studies consistently with their order in Figure 2.
+  # these are ordered broadly by Pgp3 Seroconversion rate
+temp_lyn_order <- c(
+  "Wag Hemra, Ethiopia (WUHA) 2019",
+  "Wag Hemra, Ethiopia (TAITU) 2018",
+  "Andabet, Ethiopia 2017",
+  "Matameye, Niger (PRET) 2013",
+  "Kongwa, Tanzania 2013",
+  "Kongwa, Tanzania 2018",
+  "Chikwawa, Malawi 2014",
+  "Mchinji, Malawi 2014",
+  "Dera, Ethiopia 2017",
+  "Agdaz, Morocco 2019",
+  "Woreta town, Ethiopia 2017",
+  "Alefa, Ethiopia 2017",
+  "Boumalne Dades, Morocco 2019",
+  "Dosso, Niger (MORDOR) 2018"
+)
+  
+  # 1) SP figures
+  sp_fig <- clu_all_summary_foi %>%
+    filter(location_year_name %in% lyn_recent) %>%
+    filter(pgp3_n_tested >= min_clu_n) %>% 
+    mutate(location_year_name = factor(location_year_name, levels = rev(temp_lyn_order))) %>% 
+    ggplot() +
+    # geom_jitter(aes(x = location_year_name, y = pgp3_prev, color = location_year_name),
+    #             width=0.1,alpha = 0.8, size = 1.2) +
+    geom_point(aes(x = location_year_name, y = pgp3_prev, color = location_year_name),
+               shape = "|", alpha = 0.8, size = 4) +
+    geom_boxplot(aes(x = location_year_name, y = pgp3_prev),
+                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.8) +
+    scale_x_discrete(labels = ind_df %>%
+                       left_join(lyn_all_summary_foi %>% dplyr::select(location_year_name, location_year_name_nm), by = "location_year_name") %>% 
+                       distinct(location_year_name, location_year_name_nm) %>%
+                       tibble::deframe(),
+                     limits = rev(temp_lyn_order)) +
+    scale_y_continuous(breaks = seq(0, 100, by = 20), limits = c(0,100)) +
+    labs(x = NULL, y = "Seroprevalence (%)") +
+    coord_flip() +
+    temp_theme +
+    theme(legend.position = "none",
+          axis.text.x = element_text(size = 12),
+          axis.title.x = element_text(size = 16),
+          axis.text.y = element_text(color = rev(location_year_name_colors[temp_lyn_order]),
+                                     size = 12, hjust = 0.5))
+  
+  # 2) FOI figures
+  foi_fig <- clu_all_summary_foi %>%
+    filter(location_year_name %in% lyn_recent) %>%
+    filter(pgp3_n_tested >= min_clu_n) %>% 
+    mutate(location_year_name = factor(location_year_name, levels = rev(temp_lyn_order))) %>% 
+    ggplot() +
+    geom_point(aes(x = location_year_name, y = sir_foi, color = location_year_name),
+               shape = "|", alpha = 0.8, size = 4) +
+    geom_boxplot(aes(x = location_year_name, y = sir_foi),
+                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.8) +
+    scale_x_discrete(labels = ind_df %>%
+                       left_join(lyn_all_summary_foi %>% dplyr::select(location_year_name, location_year_name_nm), by = "location_year_name") %>% 
+                       distinct(location_year_name, location_year_name_nm) %>%
+                       tibble::deframe(),
+                     limits = rev(temp_lyn_order)) +
+    scale_y_continuous(breaks = seq(0, 1, by = 0.2), limits = c(0,1)) +
+    labs(x = NULL, y = "Seroconversion rate per person-year") +
+    coord_flip() +
+    temp_theme +
+    theme(legend.position = "none",
+          axis.text.x = element_text(size = 12),
+          axis.title.x = element_text(size = 16),
+          axis.text.y = element_blank())
+  
+  # 3) PCR figures
+  pcr_fig <- clu_all_summary_foi %>%
+    filter(location_year_name %in% lyn_recent) %>% 
+    filter(pcr_n_tested >= min_clu_n) %>% 
+    mutate(location_year_name = factor(location_year_name, levels = rev(temp_lyn_order))) %>%  
+    ggplot() +
+    geom_point(aes(x = location_year_name, y = pcr_prev, color = location_year_name),
+               shape = "|", alpha = 0.8, size = 4) +
+    # geom_jitter(aes(x = location_year_name, y = pcr_prev, color = location_year_name),
+    #             width=0.1,alpha = 0.8, size = 1.2) +
+    geom_boxplot(aes(x = location_year_name, y = pcr_prev),
+                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.8) +
+    # add manual points for Carter Center
+    geom_point(data = cc_pcr_manual %>% filter(location_year_name %in% temp_lyn_order),
+               aes(x = location_year_name, y = prev, fill = location_year_name),
+               alpha = 0.7, pch = 21, color = "black", size = 4) +
+    scale_x_discrete(limits = rev(temp_lyn_order)) +
+    scale_y_continuous(breaks = seq(0, 100, by = 20), limits = c(0,100)) +
+    labs(x = NULL, y = "PCR prevalence (%)") +
+    coord_flip() +
+    temp_theme +
+    theme(legend.position = "none",
+          axis.text.x = element_text(size = 12),
+          axis.title.x = element_text(size = 16),
+          axis.text.y = element_blank())
+  
+  # 4) TF figures
+  tf_fig <- clu_all_summary_foi %>%
+    filter(tf_n_tested >= min_clu_n | study_id == "TCC-Ethiopia2017") %>% 
+    filter(location_year_name %in% lyn_recent) %>% 
+    mutate(location_year_name = factor(location_year_name, levels = rev(temp_lyn_order))) %>%  
+    ggplot() +
+    geom_point(aes(x = location_year_name, y = tf_prev, color = location_year_name),
+               shape = "|", alpha = 0.7, size = 4) +
+    # geom_jitter(aes(x = location_year_name, y = tf_prev, color = location_year_name),
+    #             width=0.1,alpha = 0.8, size = 1.2) +
+    geom_boxplot(aes(x = location_year_name, y = tf_prev),
+                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.8) +
+    scale_x_discrete(limits = rev(temp_lyn_order)) +
+    scale_y_continuous(breaks = seq(0, 100, by = 20), limits = c(0,100)) +
+    labs(x = NULL, y = "TF prevalence (%)") +
+    coord_flip() +
+    temp_theme +
+    theme(legend.position = "none",
+          axis.text.x = element_text(size = 12),
+          axis.title.x = element_text(size = 16),
+          axis.text.y = element_blank())
+  
+  ret <- plot_grid(sp_fig,
+                   #foi_fig,
+                   pcr_fig,
+                   tf_fig,
+                   nrow = 1,
+                   rel_widths = c(1, 0.6, 0.6, 0.6))
+  
+  return(ret)
+}
+```
+
+```{r, fig.width = 8.5, fig.height = 8.5, message = FALSE, warning = FALSE}
+age_sero_combined_fig <- get_age_sero_curve_fig(incl_legend = FALSE)
+
+age_sero_combined_fig
+
+if(save_figs){
+  ggsave(filename = here::here("output", "fig1_trach_summary.png"),
+         plot = age_sero_combined_fig,
+         width = 11, height = 12, units = "in")
+}
+```
+
+## For text
+
+```{r}
+clu_df_elig <- clu_df %>% filter(pgp3_n_tested>=min_clu_n)
+```
+
+* Mininum number of serological measurements per cluster: `r min_clu_n`
+* Total number of clusters: `r nrow(clu_df_elig)`
+* Median children per cluster: `r median(clu_df_elig$pgp3_n_tested)`, IQR: `r quantile(clu_df_elig$pgp3_n_tested, probs = c(0.25))`, `r quantile(clu_df_elig$pgp3_n_tested, probs = c(0.75))`
+* Total serological measurements: `r sum(clu_df_elig$pgp3_n_tested)`
+
+* Seroprevalence median: `r round(median(study_df$pgp3_prev_median, na.rm=TRUE),0)`, range: `r round(min(study_df$pgp3_prev_median, na.rm=TRUE),0)`, `r round(max(study_df$pgp3_prev_median, na.rm=TRUE),0)`
+* PCR prevalence median: `r round(median(study_df$pcr_prev_median, na.rm = TRUE),0)`, range: `r round(min(study_df$pcr_prev_median, na.rm = TRUE),0)`, `r round(max(study_df$pcr_prev_median, na.rm = TRUE),0)`
+* TF prevalence median: `r round(median(study_df$tf_prev_median, na.rm = TRUE),0)`, range: `r round(min(study_df$tf_prev_median, na.rm = TRUE),0)`, `r round(max(study_df$tf_prev_median, na.rm = TRUE),0)`
+
+Among clusters with MDA, the median PCR prevalence was `r round(median(clu_df_elig %>% filter(mda == 1) %>% pull(pcr_prev), na.rm = TRUE), 0)`.
+Among clusters without recent MDA, the median PCR prevalence was `r round(median(clu_df_elig %>% filter(mda == 0) %>% pull(pcr_prev), na.rm = TRUE), 0)`.
+
+## Session Info
+
+```{r session info}
+sessionInfo()
+```
