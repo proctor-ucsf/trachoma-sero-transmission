@@ -1,0 +1,312 @@
+---
+title: "Monitoring transmission intensity of trachoma with serology"
+subtitle: "Compare serology summaries"
+author: "Contributors: Christine Tedijanto christine.tedijanto@ucsf.edu and Ben Arnold ben.arnold@ucsf.edu"
+date: "Last updated: `r Sys.Date()`"
+output:
+    html_document:
+      code_folding: hide
+      toc: true
+      toc_float: true
+      toc_collapsed: true
+      toc_depth: 3
+number_sections: false
+---
+
+**Objective:** Estimate correlations between different serological summaries and visualize.
+
+```{r setup, message = FALSE}
+#------------------------------
+# Load project config file
+#------------------------------
+library(here)
+source(here("R/0-config.R"))
+
+#------------------------------
+# global variables
+#------------------------------
+
+# minimum number of measurements per cluster
+min_clu_n <- 15
+
+# save figures?
+save_figs <- TRUE
+```
+
+
+## Read data and stored estimates
+
+```{r read data}
+#------------------------------
+# read in saved results
+# at the cluster- and study-level
+# created by 2-estimate-foi.Rmd
+#------------------------------
+clu_all  <- read_rds(here("output","clu_all_summary.rds"))
+clu_1to5 <- read_rds(here("output", "clu_1to5_summary.rds")) 
+lyn_all  <- read_rds(here("output","lyn_all_summary.rds"))
+
+#------------------------------
+# for 4 carter center studies
+# there are only study-level
+# estimates of PCR prevalence
+# (not indiv or cluster level data)
+# join these estimates to the study
+# level file
+#------------------------------
+cc_pcr_manual <- data.frame(location_year_name = c("Andabet, Ethiopia 2017",
+                                                   "Dera, Ethiopia 2017",
+                                                   "Woreta town, Ethiopia 2017",
+                                                   "Alefa, Ethiopia 2017"),
+                            prev = c(11.3, 0, 0, 0),
+                            stringsAsFactors = FALSE)
+
+lyn_all <- lyn_all %>%
+  left_join(cc_pcr_manual, by = "location_year_name") %>% 
+  mutate(pcr_prev_median = coalesce(prev, pcr_prev_median)) %>% 
+  dplyr::select(-prev)
+
+```
+
+```{r}
+clu_all %>% 
+  left_join(lyn_all %>% dplyr::select(location_year_name), by = "location_year_name") %>% 
+  filter(pcr_n_tested>=min_clu_n) %>% 
+  drop_na(pcr_prev) %>% 
+  filter(mda == 0) %>% 
+  pull(pcr_prev) %>% 
+  #range()
+  median(na.rm = TRUE)
+```
+```{r}
+# add helper function to create GAM CIs
+# from Ben's code here: https://github.com/ben-arnold/mordor-antibody/blob/master/R/mordor-ab-Functions.R
+gamCI <- function(m,newdata,nreps=10000) {
+  require(mgcv)
+  require(dplyr)
+  Vb <- vcov(m,unconditional = TRUE)
+  pred <- predict(m, newdata, se.fit = TRUE)
+  fit <- pred$fit
+  se.fit <- pred$se.fit
+  BUdiff <- MASS::mvrnorm(n=nreps, mu = rep(0, nrow(Vb)), Sigma = Vb)
+  Cg <- predict(m, newdata, type = "lpmatrix")
+  simDev <- Cg %*% t(BUdiff)
+  absDev <- abs(sweep(simDev, 1, se.fit, FUN = "/"))
+  masd <- apply(absDev, 2L, max)
+  crit <- quantile(masd, prob = 0.95, type = 8)
+  pred <- data.frame(newdata,fit=pred$fit,se_fit=pred$se.fit)
+  pred <- mutate(pred,
+                 uprP = fit + (2 * se.fit),
+                 lwrP = fit - (2 * se.fit),
+                 uprS = fit + (crit * se.fit),
+                 lwrS = fit - (crit * se.fit)
+  )
+  return(pred)
+}
+```
+
+## Figs 3 and S3
+
+```{r}
+get_sero_compare_fig <- function(x_var, y_var, incl_clu = TRUE, incl_ci = TRUE, log_y = FALSE, x_max, y_min = 0, y_max, x_lab, y_lab, y_text, lyn_suffix = "_median"){
+  temp_df <- clu_all %>% 
+    mutate(sir_foi = sir_foi*100, sis_foi = sis_foi*100) %>% 
+    filter(location_year_name %in% (lyn_all %>% pull(location_year_name)),
+           pgp3_n_tested >= min_clu_n)
+  
+  ret <- temp_df %>% 
+    ggplot() +
+    scale_color_manual(values = location_year_name_colors) +
+    scale_fill_manual(values = location_year_name_colors) +
+    labs(x = x_lab, y = y_lab) +
+    coord_cartesian(xlim = c(0,x_max), ylim = c(y_min,y_max)) +
+    theme_minimal() +
+    theme(legend.position = "none", 
+          axis.title = element_text(size = 10),
+          plot.margin = margin(0.2,0.2,0.2,0.6,unit = "cm"))
+    
+  if(incl_clu){
+    ret <- ret + 
+          geom_point(aes(x = get(x_var), y = get(y_var), color = location_year_name),
+               size = 0.6, alpha = 0.5)
+  }
+    
+  if(log_y){
+    
+    if(incl_ci == TRUE) {
+      fit <- mgcv::gam(log10_y ~ s(x_val, bs="cr") + s(location_year_name, bs="re", by=dummy),
+                       data = temp_df %>%
+                         mutate(log10_y = log10(get(y_var)), x_val = get(x_var), dummy=1) %>%
+                         drop_na(log10_y, x_val))
+      new_df <- temp_df %>%
+        mutate(log10_y = log10(get(y_var)), x_val = get(x_var), dummy=0) %>%
+        drop_na(log10_y, x_val)
+      fit_ci <- gamCI(m=fit,newdata=new_df,nreps=10000) %>% dplyr::select(x_val, uprS, lwrS)
+      
+      ret <- ret + 
+        geom_ribbon(data = fit_ci, aes(x = x_val, ymin = 10^lwrS, ymax = 10^uprS), alpha = 0.2, fill = "grey")
+    }
+    
+    ret <- ret +
+          scale_y_log10(breaks = scales::trans_breaks("log10", function(x) 10^x)(c(1, 1e5)),
+                        labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+      scale_x_continuous(breaks=seq(0,100,by=20))
+  } else {
+    
+    if(incl_ci == TRUE) {
+    fit <- mgcv::gam(y_val ~ s(x_val, bs="cr") + s(location_year_name, bs="re", by=dummy), data = temp_df %>%
+                       mutate(y_val = get(y_var), x_val = get(x_var), dummy=1) %>%
+                       drop_na(y_val, x_val))
+    new_df <- temp_df %>% mutate(y_val = get(y_var), x_val = get(x_var), dummy=0) %>% drop_na(y_val, x_val)
+    fit_ci <- gamCI(m=fit,newdata=new_df,nreps=10000) %>% dplyr::select(x_val, uprS, lwrS)
+    
+    ret <- ret + 
+      geom_ribbon(data = fit_ci, aes(x = x_val, ymin = lwrS, ymax = uprS), alpha = 0.2, fill = "grey") +
+      scale_y_continuous(breaks=seq(0,100,by=20)) + 
+      scale_x_continuous(breaks=seq(0,100,by=20))
+    }
+    
+  }
+  
+  temp_lyn_all <- lyn_all %>%
+                 mutate(sir_foi_median = sir_foi_median*100, sis_foi_median=sis_foi_median*100, gam_foi=gam_foi*100)
+  
+  temp_cor <- cor(temp_lyn_all %>% pull(get(paste0(x_var, "_median"))), temp_lyn_all %>% pull(get(paste0(y_var, lyn_suffix))),
+                  method = "spearman", use = "complete.obs") %>% round(digits = 2)
+  
+  ret <- ret +
+    geom_point(data = temp_lyn_all,
+               aes(x = get(paste0(x_var, "_median")), y = get(paste0(y_var, lyn_suffix)), fill = location_year_name),
+               pch = 21, size = 2.5) +
+    annotate("text", label = paste0("\u03c1=", temp_cor),
+             x = 0.11*x_max, y = y_text, size = 4)
+  
+  return(ret)
+}
+
+sero_mab_fig <- get_sero_compare_fig(x_var = "pgp3_prev", y_var = "pgp3_log10geomean",
+                                     x_max = 100, y_min = 1, y_max = 1e4, y_text = 10^(4*0.9),
+                                     log_y = TRUE,
+                                     x_lab = "Seroprevalence (%)", y_lab = "Antibody response\n(geometric mean MFI-bg)")
+
+sero_sir_fig <- get_sero_compare_fig(x_var = "pgp3_prev", y_var = "sir_foi",
+                                     x_max = 100, y_max = 100, y_text = 100*0.9,
+                                     x_lab = "Seroprevalence (%)", y_lab = "Seroconversion rate per 100 PY\n(no seroreversion)")
+
+sero_sis_fig <- get_sero_compare_fig(x_var = "pgp3_prev", y_var = "sis_foi",
+                                     x_max = 100, y_max = 100, y_text = 100*0.9,
+                                     x_lab = "Seroprevalence (%)", y_lab = "Seroconversion rate per 100 PY\n(seroreversion rate = 6.6 per 100 PY)")
+
+sero_gam_fig <- get_sero_compare_fig(x_var = "pgp3_prev", y_var = "gam_foi",
+                                     x_max = 100, y_max = 25, y_text = 25*0.9,
+                                     incl_clu = FALSE,
+                                     incl_ci = FALSE,
+                                     x_lab = "Seroprevalence (%)", y_lab = "Seroconversion rate per 100 PY\n(semiparametric spline)", lyn_suffix = "")
+
+sir_mab_fig <- get_sero_compare_fig(x_var = "sir_foi", y_var = "pgp3_log10geomean",
+                                     x_max = 80, y_min = 1, y_max = 1e4, y_text = 10^(4*0.9),
+                                     log_y = TRUE,
+                                     x_lab = "Seroconversion rate per 100 PY\n(no seroreversion)", y_lab = "Antibody response\n(geometric mean MFI-bg)")
+
+sir_sp_fig <- get_sero_compare_fig(x_var = "sir_foi", y_var = "pgp3_prev",
+                                     x_max = 100, y_max = 100, y_text = 100*0.9,
+                                     x_lab = "Seroconversion rate per 100 PY\n(no seroreversion)", y_lab = "Seroprevalence (%)")
+
+sir_sis_fig <- get_sero_compare_fig(x_var = "sir_foi", y_var = "sis_foi",
+                                     x_max = 100, y_max = 100, y_text = 100*0.9,
+                                     x_lab = "Seroconversion rate per 100 PY\n(no seroreversion)", y_lab = "Seroconversion rate per 100 PY\n(seroreversion rate = 6.6 per 100 PY)")
+
+sir_gam_fig <- get_sero_compare_fig(x_var = "sir_foi", y_var = "gam_foi",
+                                     x_max = 20, y_max = 20, y_text = 20*0.9,
+                                     incl_clu = FALSE,
+                                     incl_ci = FALSE,
+                                     x_lab = "Seroconversion rate per 100 PY\n(no seroreversion)", y_lab = "Seroconversion rate per 100 PY\n(semiparametric spline)", lyn_suffix = "")
+```
+
+```{r}
+# extract legend
+my_ggp <- ggplot(data = lyn_all) +
+  geom_point(aes(x = pgp3_prev_median, y = sir_foi_median, fill = location_year_name),
+             pch = 21, color = "black", size = 2.5) +
+  scale_fill_manual(values = location_year_name_colors[lyn_all %>% pull(location_year_name)],
+                    labels = location_year_name_short %>% filter(location_year_name %in% (lyn_all %>% pull(location_year_name))) %>% deframe()) +
+  theme_minimal() +
+  theme(legend.title = element_blank(),
+        legend.key.height = unit(0.5, "cm"),
+        legend.key.width = unit(0.8, "cm"),
+        legend.text = element_text(size = 8)) +
+  guides(fill = guide_legend(nrow = 3))
+step1 <- ggplot_gtable(ggplot_build(my_ggp))
+step2 <- which(sapply(step1$grobs, function(x) x$name) == "guide-box")
+step3 <- step1$grobs[[step2]]
+```
+
+```{r, fig.width = 8.5, fig.height = 6.5}
+#sero_fig <- plot_grid(sero_mab_fig, sero_sir_fig, sero_sis_fig, sero_gam_fig, nrow = 1)
+#sir_fig <- plot_grid(sir_mab_fig, sir_sp_fig, sir_sis_fig, sir_gam_fig, nrow = 1)
+combined_fig <- plot_grid(
+  plot_grid(sero_mab_fig, sero_sir_fig, nrow = 1, labels = c("a", "b")),
+  step3,
+  plot_grid(sir_sis_fig, sero_sis_fig, nrow = 1, labels = c("c", "d")),
+  ncol = 1, labels = NA, rel_heights = c(1,0.25,1))
+
+combined_fig
+
+sir_gam_fig
+
+if(save_figs) {
+  ggsave(filename = here::here("output", "fig3_sero_summaries.png"),
+       plot = combined_fig,
+       width = 8.5, height = 6.5)
+  
+  ggsave(filename = here::here("output", "figS3_sir_gam.png"),
+       plot = plot_grid(sir_gam_fig, step3, ncol = 1, labels = NA, rel_heights = c(1, 0.25)),
+       width = 8.5, height = 8)
+  
+}
+
+```
+
+## Fig S8. Compare AIC for many different models
+```{r aic figs8, fig.width = 8.5, fig.height = 7.5}
+lyn_all_sis <- read_rds(here("output", "lyn_all_sis.rds"))
+
+aic_df <- lyn_all_sis %>%
+  dplyr::select(location_year_name, loglik = sis_minll, model = seroreversion) %>% 
+  mutate(model = round(model*100,1)) %>% 
+  mutate(aic = loglik*2 + 1) %>% 
+  bind_rows(lyn_all %>%
+              dplyr::select(location_year_name, loglik = gam_minll, aic = gam_aic) %>%
+              mutate(model = 22, loglik = as.numeric(as.character(loglik)))) %>% 
+  mutate(location_year_name = factor(location_year_name, 
+                                                                                                                       levels = lyn_all  %>% arrange(desc(pgp3_prev_median)) %>% pull(location_year_name)))
+
+aic_fig <- aic_df %>%
+  ggplot(aes(x = model, y = aic, fill = location_year_name)) +
+  geom_vline(xintercept = 6.6, lty = "dashed") +
+  geom_point(pch = 21, alpha = 0.9) +
+  scale_x_continuous(breaks = seq(0,22,by=2),
+                     labels = c(seq(0,20,by=2), "SS")) +
+  scale_fill_manual(values = location_year_name_colors) +
+  facet_wrap(.~location_year_name, scales = "free") +
+  labs(x = "Assumed seroreversion rate per 100 PY / model", y = "AIC") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        strip.text = element_text(size = 7.5),
+        axis.text = element_text(size = 7))
+
+aic_fig
+
+if(save_figs) {
+  ggsave(filename = here::here("output", "figS8_aic_compare.png"),
+       plot = aic_fig,
+       width = 8.5, height = 7.5)
+  
+}
+
+```
+
+## Session Info
+```{r session info}
+sessionInfo()
+```
