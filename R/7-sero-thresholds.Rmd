@@ -1,0 +1,494 @@
+---
+title: "Monitoring transmission intensity of trachoma with serology"
+subtitle: "Identifying clusters with infection using serology thresholds"
+author: "Contributors: Christine Tedijanto christine.tedijanto@ucsf.edu and Ben Arnold ben.arnold@ucsf.edu"
+date: "Last updated: `r Sys.Date()`"
+output:
+    html_document:
+      code_folding: hide
+      toc: true
+      toc_float: true
+      toc_collapsed: true
+      toc_depth: 3
+number_sections: false
+---
+
+
+## Setup
+
+```{r setup}
+#------------------------------
+# Load project config file
+#------------------------------
+library(here)
+source(here("R/0-config.R"))
+
+#------------------------------
+# global variables
+#------------------------------
+
+# minimum number of measurements per cluster
+# see 1-trachoma-sero-transmission-make-datasets.Rmd
+# for examination of minimum cluster size. 15 chosen
+min_clu_n <- 15 
+
+# save figures?
+save_figs <- TRUE 
+
+```
+
+## Load saved estimates
+
+```{r load data}
+#------------------------------
+# load cluster-level estimates
+# these estimates were generated
+# in the script 2-estimate-foi.Rmd
+#------------------------------
+clu_all  <- read_rds(here("output", "clu_all_summary.rds")) 
+clu_1to5 <- read_rds(here("output", "clu_1to5_summary.rds")) 
+
+#------------------------------
+# load study-level estimates
+# these estimates were generated
+# in the script 2-estimate-foi.Rmd
+#------------------------------
+lyn_all <- read_rds(here("output", "lyn_all_summary.rds"))
+
+```
+
+```{r}
+get_sens_spec <- function(df, dvar, dcutoff, var, range, step){
+  
+   df <- df %>% filter(!is.na(get(dvar)), !is.na(get(var)))
+
+  # number of D+ "disease-positives" (more infections than cutoff)
+  dpos <- df %>% filter(get(dvar)>dcutoff) %>% nrow()
+  # number of D- "disease-negatives"
+  dneg <- df %>% filter(get(dvar)<=dcutoff) %>% nrow()
+  
+  temp_cutoffs <- seq(0, range, by = step)
+  
+  # numerator of sensitivity - T+ & D+
+  sens_n <- sapply(temp_cutoffs,
+                   function(x) df %>%
+                     filter(get(dvar)>dcutoff,
+                            get(var)>x) %>%
+                     nrow())
+  
+  # numerator of specificity - T- & D-
+  spec_n <- sapply(temp_cutoffs,
+                   function(x) df %>%
+                     filter(get(dvar)<=dcutoff,
+                            get(var)<=x) %>%
+                     nrow())
+  
+  # number of test positives
+  tpos <- sapply(temp_cutoffs,
+                   function(x) df %>%
+                     filter(get(var)>x) %>%
+                     nrow())
+  
+  ret <- data.frame(dvar = dvar, dcutoff = dcutoff,
+                    var = var, cutoff = temp_cutoffs,
+                    dpos = dpos, sens = sens_n / dpos,
+                    dneg = dneg, spec = spec_n / dneg,
+                    tpos = tpos, ppv = sens_n / tpos) %>% 
+    mutate(spec_comp = 1 - spec,
+           youdenj = sens + spec -1,
+           f1score = 2*ppv*sens / (ppv + sens))
+  
+  return(ret)
+}
+```
+
+```{r}
+lyn_all_list <- c("Wag Hemra, Ethiopia (WUHA) 2019", "Wag Hemra, Ethiopia (TAITU) 2018",
+                   "Kongwa, Tanzania 2018", "Kongwa, Tanzania 2013",
+                   "Chikwawa, Malawi 2014", "Mchinji, Malawi 2014", "Matameye, Niger (PRET) 2013")
+
+lyn_1to5_list <- c("Wag Hemra, Ethiopia (WUHA) 2019", "Wag Hemra, Ethiopia (TAITU) 2018",
+                   "Kongwa, Tanzania 2018", 
+                   "Chikwawa, Malawi 2014", "Mchinji, Malawi 2014", "Matameye, Niger (PRET) 2013")
+```
+
+```{r}
+n_steps <- 200
+sens_spec_vars <- data.frame(dvar = c("pcr_prev", "pcr_prev"),
+                             var = c("pgp3_prev", "sir_foi"),
+                             range = c(100, 0.5)) %>%
+  mutate(step = range / n_steps) %>% 
+  crossing(data.frame(dcutoff = c(0,5)))
+
+sens_spec_all <- lapply(1:nrow(sens_spec_vars),
+                       function(x){
+                         get_sens_spec(
+                           df = clu_all %>%
+                             filter(location_year_name %in% lyn_all_list,
+                                    pcr_n_tested >= min_clu_n),
+                           dvar = sens_spec_vars$dvar[x],
+                           dcutoff = sens_spec_vars$dcutoff[x],
+                           var = sens_spec_vars$var[x],
+                           range = sens_spec_vars$range[x],
+                           step = sens_spec_vars$step[x]
+                          )}) %>% bind_rows()
+
+
+sens_spec_all_bylyn <- foreach(curr_lyn = lyn_all_list, .combine = rbind) %dopar% {
+  lapply(1:nrow(sens_spec_vars),
+                       function(x){
+                         get_sens_spec(
+                           df = clu_all %>%
+                             filter(location_year_name == curr_lyn,
+                                    pcr_n_tested>= min_clu_n),
+                           dvar = sens_spec_vars$dvar[x],
+                           dcutoff = sens_spec_vars$dcutoff[x],
+                           var = sens_spec_vars$var[x],
+                           range = sens_spec_vars$range[x],
+                           step = sens_spec_vars$step[x]
+                          )}) %>% bind_rows() %>% mutate(location_year_name = curr_lyn)
+}
+
+# count positives out of total
+clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n) %>% nrow()
+clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n, pcr_prev==0) %>% nrow()
+clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n, pcr_prev>0, pgp3_prev>13.5) %>% nrow()
+```
+
+```{r}
+sens_spec_1to5 <- lapply(1:nrow(sens_spec_vars),
+                       function(x){
+                         get_sens_spec(
+                           df = clu_1to5 %>%
+                             filter(location_year_name %in% lyn_1to5_list,
+                                    pcr_n_tested >= min_clu_n),
+                           dvar = sens_spec_vars$dvar[x],
+                           dcutoff = sens_spec_vars$dcutoff[x],
+                           var = sens_spec_vars$var[x],
+                           range = sens_spec_vars$range[x],
+                           step = sens_spec_vars$step[x]
+                          )}) %>% bind_rows()
+
+sens_spec_1to5_bylyn <- foreach(curr_lyn = lyn_1to5_list, .combine = rbind) %dopar% {
+  lapply(1:nrow(sens_spec_vars),
+                       function(x){
+                         get_sens_spec(
+                           df = clu_1to5 %>%
+                             filter(location_year_name == curr_lyn,
+                                    pcr_n_tested >= min_clu_n),
+                           dvar = sens_spec_vars$dvar[x],
+                           dcutoff = sens_spec_vars$dcutoff[x],
+                           var = sens_spec_vars$var[x],
+                           range = sens_spec_vars$range[x],
+                           step = sens_spec_vars$step[x]
+                          )}) %>% bind_rows() %>% mutate(location_year_name = curr_lyn)
+}
+
+# count positives out of total
+clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n, !is.na(pcr_prev)) %>% nrow()
+clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n, pcr_prev>0) %>% nrow()
+```
+
+```{r}
+get_sens_spec_fig <- function(df, lyn_list, dvar_input, cutoff_var, cutoff_lab){
+  
+  lyn_temp <- lyn_all %>%
+    filter(location_year_name %in% get(lyn_list)) %>% 
+    mutate(elim = ifelse(get(paste0(dvar_input, "_median"))==0, 1, 0)) %>% 
+    dplyr::select(location_year_name, val = eval(paste0(cutoff_var, "_median")), elim)
+  
+  temp_df <- df %>% 
+    filter(var == cutoff_var,
+           dvar == dvar_input,
+           dcutoff == 0)
+  
+  if(cutoff_var %in% c("sir_foi", "sis_foi")){
+    temp_df <- temp_df %>% mutate(cutoff = cutoff*100)
+    sens_spec_all_bylyn <- sens_spec_all_bylyn %>% mutate(cutoff = cutoff*100)
+    lyn_temp <- lyn_temp %>% mutate(val = val*100)
+  }
+  
+  cutoff_90 <- temp_df %>% filter(sens>=0.9) %>% pull(cutoff) %>% max()
+  cutoff_80 <- temp_df %>% filter(sens>=0.8) %>% pull(cutoff) %>% max()
+  
+  temp_df %>% 
+    ggplot() +
+    # thresholds
+    geom_segment(x = cutoff_90, xend = cutoff_90, y = 0, yend = 1, lty = "solid", lwd = 0.7) +
+    geom_segment(x = cutoff_80, xend = cutoff_80, y = 0, yend = 1, lty = "dotted", lwd = 0.7) +
+    geom_line(data = sens_spec_all_bylyn %>%
+                filter(location_year_name %in% get(lyn_list),
+                       var == cutoff_var,
+                       dvar == dvar_input,
+                       dcutoff == 0),
+              aes(x = cutoff, y = sens, group = location_year_name, color = location_year_name), lwd = 0.4, alpha = 0.8) +
+    geom_line(aes(x = cutoff, y = sens), lwd = 1, color = "black") +
+    geom_line(aes(x = cutoff, y = spec), lwd = 1, color = "black") +
+    # population points
+    geom_point(data = lyn_temp, aes(x = val, y = -0.05, fill = location_year_name),
+              pch = 21, size = 2.5, alpha = 0.8) +
+    geom_text(aes(x = max(cutoff)*0.9, y = max(spec)*0.95), label = "specificity", color = "black",fontface="bold") +
+    geom_text(aes(x = max(cutoff)*0.9, y = min(sens)+0.1), label = "sensitivity", color = "black",fontface="bold") +
+    scale_fill_manual(values = location_year_name_colors) +
+    scale_color_manual(values = location_year_name_colors) +
+    labs(x = cutoff_lab) +
+    theme_minimal() +
+    theme(axis.title.y = element_blank(),
+          legend.position = "none",
+          axis.title.x = element_text(size = 10),
+          axis.text = element_text(size = 8),
+          panel.grid.minor = element_blank())
+  
+}
+```
+
+```{r}
+sp_fig <- get_sens_spec_fig(df = sens_spec_all,
+                            lyn_list = "lyn_all_list",
+                            dvar_input = "pcr_prev",
+                            cutoff_var = "pgp3_prev",
+                            cutoff_lab = "Seroprevalence threshold (%)") +
+  theme(plot.margin = margin(0,0,0,20,"pt"))
+
+sp_fig_1to5 <- get_sens_spec_fig(df = sens_spec_1to5,
+                            lyn_list = "lyn_1to5_list",
+                            dvar_input = "pcr_prev",
+                            cutoff_var = "pgp3_prev",
+                            cutoff_lab = "Seroprevalence threshold (%)") +
+  theme(plot.margin = margin(0,0,0,20,"pt"))
+
+sir_fig <- get_sens_spec_fig(df = sens_spec_all,
+                            lyn_list = "lyn_all_list",
+                            dvar_input = "pcr_prev",
+                            cutoff_var = "sir_foi",
+                            cutoff_lab = "Seroconversion rate per 100 PY threshold") +
+  theme(plot.margin = margin(0,0,0,20,"pt"))
+
+sis_fig <- get_sens_spec_fig(df = sens_spec_all,
+                            lyn_list = "lyn_all_list",
+                            dvar_input = "pcr_prev",
+                            cutoff_var = "sis_foi",
+                            cutoff_lab = "Seroconversion rate per 100 PY threshold\n(seroreversion rate = 6.6 per 100 PY)") +
+  theme(plot.margin = margin(0,0,0,20,"pt"))
+
+```
+
+## ROC curves
+
+```{r}
+# calculate AUC
+auc_response <- clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n) %>% mutate(pcr_any=as.numeric(pcr_prev>0)) %>% pull(pcr_any)
+auc_pred_pgp3 <- clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n) %>% pull(pgp3_prev)
+auc_pred_sir <- clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n) %>% pull(sir_foi)
+auc_pgp3 <- pROC::auc(auc_response, auc_pred_pgp3)
+auc_sir <- pROC::auc(auc_response, auc_pred_sir)
+
+print(paste("AUC all, seroprevalence for PCR>0:", round(auc_pgp3,2)))
+print(paste("AUC all, seroconversion for PCR>0:", round(auc_sir,2)))
+
+# ROC curve
+temp_df <- sens_spec_all %>% 
+    filter(var == "pgp3_prev",
+           dvar == "pcr_prev",
+           dcutoff == 0)
+  
+cutoff_90 <- temp_df %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% dplyr::select(sens, spec)
+cutoff_80 <- temp_df %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% dplyr::select(sens, spec)
+
+roc_sp_fig <- sens_spec_all %>%
+  filter(dvar == "pcr_prev", var == "pgp3_prev", dcutoff==0) %>%
+  arrange((1-spec), sens) %>%
+  ggplot(aes(x = 1-spec, y = sens)) +
+  # add lines for each study pop
+  geom_line(data = sens_spec_all_bylyn %>%
+              filter(dvar == "pcr_prev", var == "pgp3_prev", dcutoff==0) %>%
+              arrange((1-spec), sens),
+            aes(x = 1-spec, y = sens, color = location_year_name),
+            lwd = 0.4, alpha = 0.8) +
+  geom_line(lwd = 1) +
+  scale_color_manual(values = location_year_name_colors) +
+  labs(x = "1 - Specificity", y = "Sensitivity") +
+  geom_text(data = data.frame(x_text = 0.75, y_text = 0.95),
+            aes(x = x_text, y = y_text), size = 3.5, hjust=0.5, color="black", fontface="bold",
+            label = paste0("AUC=", sprintf("%1.2f",auc_pgp3))) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+roc_sir_fig <- sens_spec_all %>%
+  filter(dvar == "pcr_prev", var == "sir_foi", dcutoff==0) %>%
+  arrange((1-spec), sens) %>%
+  ggplot(aes(x = 1-spec, y = sens)) +
+  # add lines for each study pop
+  geom_line(data = sens_spec_all_bylyn %>%
+              filter(dvar == "pcr_prev", var == "sir_foi", dcutoff==0) %>%
+              arrange((1-spec), sens),
+            aes(x = 1-spec, y = sens, color = location_year_name),
+            lwd = 0.4, alpha = 0.8) +
+  geom_line(lwd = 1) +
+  scale_color_manual(values = location_year_name_colors) +
+  labs(x = "1 - Specificity", y = "Sensitivity") +
+  geom_text(data = data.frame(x_text = 0.8, y_text = 0.95),
+            aes(x = x_text, y = y_text), size = 3.5, hjust=0.5, color="black",fontface="bold",
+            label = paste0("AUC=", sprintf("%1.2f",auc_sir))) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.margin = margin(0.2,0.2,0.45,0.2,unit = "cm"))
+
+# 1 to 5
+# calculate AUC
+auc_response <- clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n) %>% mutate(pcr_any=as.numeric(pcr_prev>0)) %>% pull(pcr_any)
+auc_pred_pgp3 <- clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n) %>% pull(pgp3_prev)
+auc_pred_sir <- clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n) %>% pull(sir_foi)
+auc_pgp3 <- pROC::auc(auc_response, auc_pred_pgp3)
+auc_sir <- pROC::auc(auc_response, auc_pred_sir)
+
+print(paste("AUC 1-5yo, seroprevalence for PCR>0:", round(auc_pgp3,2)))
+print(paste("AUC 1-5yo, seroconversion for PCR>0:", round(auc_sir,2)))
+
+# ROC curve
+temp_df <- sens_spec_1to5 %>% 
+    filter(var == "pgp3_prev",
+           dvar == "pcr_prev",
+           dcutoff == 0)
+  
+cutoff_90 <- temp_df %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% dplyr::select(sens, spec)
+cutoff_80 <- temp_df %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% dplyr::select(sens, spec)
+
+roc_sp_1to5_fig <- sens_spec_1to5 %>%
+  filter(dvar == "pcr_prev", var == "pgp3_prev", dcutoff==0) %>%
+  arrange((1-spec), sens) %>%
+  ggplot(aes(x = 1-spec, y = sens)) +
+  # add lines for each study pop
+  geom_line(data = sens_spec_1to5_bylyn %>%
+              filter(dvar == "pcr_prev", var == "pgp3_prev", dcutoff==0) %>%
+              arrange((1-spec), sens),
+            aes(x = 1-spec, y = sens, color = location_year_name),
+            lwd = 0.4, alpha = 0.8) +
+  geom_line(lwd = 1) +
+  scale_color_manual(values = location_year_name_colors) +
+  labs(x = "1 - Specificity", y = "Sensitivity") +
+  geom_text(data = data.frame(x_text = 0.75, y_text = 0.95),
+            aes(x = x_text, y = y_text), size = 3.5, hjust=0.5, color="black", fontface="bold",
+            label = paste0("AUC=", sprintf("%1.2f",auc_pgp3))) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+```{r}
+# add colors and short labels to the lyn_all dataset to make the legend
+# filter to studies that contributed to this analysis in lyn_all_list
+lyn_colors_df <- data.frame(location_year_name = names(location_year_name_colors), color=location_year_name_colors)
+lyn_all2 <- lyn_all %>%
+  left_join(lyn_colors_df,by="location_year_name") %>%
+  left_join(location_year_name_short, by="location_year_name") %>%
+  filter(location_year_name %in% lyn_all_list)
+
+my_ggp <- ggplot(data = lyn_all2) +
+  geom_point(aes(x = pgp3_prev_median, y = sir_foi_median, fill = location_year_name),
+             pch = 21, color = "black", size = 2.5, alpha = 0.8) +
+  scale_fill_manual(values = lyn_all2$color,
+                    labels = lyn_all2$lyn_short) +
+  theme_minimal() +
+  theme(legend.title = element_blank(),
+        legend.key.height = unit(0.5, "cm"),
+        legend.key.width = unit(0.8, "cm"),
+        legend.text = element_text(size = 8)) +
+  guides(fill = guide_legend(nrow = 2))
+step1 <- ggplot_gtable(ggplot_build(my_ggp))
+step2 <- which(sapply(step1$grobs, function(x) x$name) == "guide-box")
+step3 <- step1$grobs[[step2]]
+```
+
+## Combine and save figures
+
+
+**Figure 6. Seroprevalence among children 1-9y**
+```{r save fig6, fig.width = 8.5, fig.height = 3.5}
+sens_spec_fig <- plot_grid(plot_grid(sp_fig, roc_sp_fig, nrow = 1, labels = 'auto'),
+                           step3, rel_heights = c(1, 0.15), ncol = 1)
+
+sens_spec_fig
+
+ggsave(filename = here("output", "fig6_sens_spec_sp.png"),
+       sens_spec_fig,
+       width = 8.5, height = 3.5, units = "in")
+```
+
+**Figure S5. Seroconversion rate among children 1-9y**
+
+```{r save figs5, fig.width = 8.5, fig.height = 3.5}
+sens_spec_fig_scr <- plot_grid(plot_grid(sir_fig, roc_sir_fig, nrow = 1, labels = 'auto'),
+                           step3, rel_heights = c(1, 0.15), ncol = 1)
+
+sens_spec_fig_scr
+
+ggsave(filename = here("output", "figS5_sens_spec_scr.png"),
+       sens_spec_fig_scr,
+       width = 8.5, height = 3.5, units = "in")
+```
+
+**Figure S6. Seroprevalence among children 1-5y**
+
+```{r save figs6, fig.width = 8.5, fig.height = 3.5}
+sens_spec_1to5_fig <- plot_grid(plot_grid(sp_fig_1to5, roc_sp_1to5_fig, nrow = 1, labels = 'auto'),
+                           step3, rel_heights = c(1, 0.15), ncol = 1)
+
+sens_spec_1to5_fig
+
+ggsave(filename = here("output", "figS6_sens_spec_sp_1to5.png"),
+       sens_spec_1to5_fig,
+       width = 8.5, height = 3.5, units = "in")
+```
+
+## Save Supplementary information tables 2-5
+
+```{r save tables}
+# save tables
+
+# table s2. seroprevalence 1-9 year olds
+write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev"),
+          file = here("output", "tables2_sens_spec_sp.csv"))
+
+# table s3. seroconversion 1-9 year olds
+write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi"),
+          file = here("output", "tables3_sens_spec_scr.csv"))
+
+# table s4. seroprevalence 1-5 year olds
+write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev"),
+          file = here("output", "tables4_sens_spec_sp_1to5.csv"))
+
+# table s5. seroconversion 1-9 year olds
+write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi"),
+          file = here("output", "tables5_sens_spec_scr_1to5.csv"))
+```
+
+## For text
+
+* Clusters with PCR measurements: `r clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n) %>% nrow()`
+* Clusters with PCR measurements with at least one infection detected: `r clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n, pcr_n_pos>0) %>% nrow()`
+
+* Seroprevalence threshold for 90% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* Seroconversion (no seroreversion) threshold for 90% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* Seroprevalence threshold for 80% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* Seroconversion (no seroreversion) threshold for 80% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+
+* 1-5yo Clusters with PCR measurements: `r clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n) %>% nrow()`
+* 1-5yo Clusters with PCR measurements with at least one infection detected: `r clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n, pcr_n_pos>0) %>% nrow()`
+
+* 1-5yo Seroprevalence threshold for 90% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* 1-5yo Seroconversion (no seroreversion) threshold for 90% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* 1-5yo Seroprevalence threshold for 80% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* 1-5yo Seroconversion (no seroreversion) threshold for 80% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+
+* Clusters in Dosso, Alefa, and Woreta town above 90% sensitivty threshold: `r clu_all %>% filter(pgp3_n_tested>=min_clu_n, location_year_name %in% c("Dosso, Niger (MORDOR) 2018", "Alefa, Ethiopia 2017", "Woreta town, Ethiopia 2017"), pgp3_prev>(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff))) %>% pull(pgp3_prev)`
+
+* 0.015 seroconversions: sensitivity = `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi", cutoff == "0.015") %>% pull(sens) %>% round(3)`, specificity = `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi", cutoff == "0.015") %>% pull(spec) %>% round(3)`
+* 6.0% seroprevalence: sensitivity = `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev", cutoff == "6") %>% pull(sens) %>% round(3)`, specificity = `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev", cutoff == "6") %>% pull(spec) %>% round(3)`
+* 6.5% seroprevalence: sensitivity = `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev", cutoff == "6.5") %>% pull(sens) %>% round(3)`, specificity = `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev", cutoff == "6.5") %>% pull(spec) %>% round(3)`
+
+
+## Session Info
+```{r session info}
+sessionInfo()
+```
