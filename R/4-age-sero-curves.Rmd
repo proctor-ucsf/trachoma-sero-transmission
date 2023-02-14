@@ -1,0 +1,404 @@
+---
+title: "Monitoring transmission intensity of trachoma with serology"
+subtitle: "Estimate age-seroprevalence curves"
+author: "Christine Tedijanto christine.tedijanto@ucsf.edu"
+date: "Last updated: `r Sys.Date()`"
+output:
+    html_document:
+      code_folding: hide
+      toc: true
+      toc_float: true
+      toc_collapsed: true
+      toc_depth: 3
+number_sections: false
+---
+
+**Objective:** To create figures summarizing serological summmary measures including age-seroprevalence curves, summary scatterplots, and comparisons at different cutoffs.
+
+## Setup
+
+
+```{r setup, message = FALSE}
+#------------------------------
+# Load project config file
+#------------------------------
+library(here)
+source(here("R/0-config.R"))
+
+#------------------------------
+# global variables
+#------------------------------
+
+# minimum number of measurements per cluster
+# see 1-trachoma-sero-transmission-make-datasets.Rmd
+# for examination of minimum cluster size. 15 chosen
+min_clu_n <- 15 
+
+# save figures?
+save_figs <- TRUE 
+```
+
+## Load data
+
+Prepare datasets and variables that are used throughout analysis. 
+
+```{r prep_data}
+#------------------------------
+# load analysis datasets
+#------------------------------
+
+# read study-level dataset
+study_df <- read_rds(here("data","trachoma_sero_transmission_analysis_study.rds"))
+
+# read individual-level dataset
+# filter to clusters with >= 15 Pgp3 measurements
+# and non-missing Pgp3 observations
+ind_df <- read_rds(here("data", "trachoma_sero_transmission_analysis_indiv.rds")) %>%
+  left_join(study_df %>% select(location_year_name, endemic_cat), by ="location_year_name") %>%
+  filter(pgp3_minobs & !is.na(pgp3_bin))
+
+#------------------------------
+# load cluster-level estimates
+# these estimates were generated
+# in the script 2-estimate-foi.Rmd
+#
+# join on the endemicity category info
+#------------------------------
+clu_all <- read_rds(here("output", "clu_all_summary.rds")) %>% 
+  left_join(study_df %>% select(location_year_name, endemic_cat), by = "location_year_name")
+
+clu_1to5 <- read_rds(here("output", "clu_1to5_summary.rds")) %>% 
+  left_join(study_df %>% select(location_year_name, endemic_cat), by = "location_year_name")
+
+#------------------------------
+# load study-level estimates
+# these estimates were generated
+# in the script 2-estimate-foi.Rmd
+#
+# join on the endemicity category info
+#------------------------------
+lyn_all  <- read_rds(here("output", "lyn_all_summary.rds")) %>% 
+  rowwise() %>% 
+  mutate(lyn_short = paste(str_split(location_year_name, ",")[[1]][1], year)) %>% 
+  ungroup() %>%
+  left_join(study_df %>% select(location_year_name, endemic_cat), by = "location_year_name")
+
+```
+
+```{r figure_prep}
+# set shared theme for figures
+shared_theme <- list(facet_wrap(.~location_year_name, ncol = 4),
+                     theme_minimal(),
+                     scale_fill_manual(values = location_year_name_colors),
+                     scale_color_manual(values = location_year_name_colors),
+                     theme(legend.position = "none"))
+```
+
+## Age-seroprevalence curves
+
+Carter Center cluster-level PCR data is not available (data only processed for district-level estimates). Instead, we use mean and 95% CI values from [Nash 2020](https://doi.org/10.4269/ajtmh.20-0777). Note that PCR was calculated among children aged 1-5 years, and the estimation procedures did not allow for calculation of CIs around this point estimate.
+
+```{r cc_data_manual}
+cc_pcr_manual <- data.frame(location_year_name = c("Andabet, Ethiopia 2017",
+                                                   "Dera, Ethiopia 2017",
+                                                   "Woreta town, Ethiopia 2017",
+                                                   "Alefa, Ethiopia 2017"),
+                            prev = c(11.3, 0, 0, 0),
+                            stringsAsFactors = FALSE)
+```
+
+**Estimate empirical age-seroprevalence values for each location and year.**
+
+```{r}
+age_sero_results <- ind_df %>%
+  group_by(study_id, location_name, year, location_year_name, endemic_cat, age_years) %>%
+  summarise(pgp3_n_pos = sum(pgp3_bin == 1, na.rm = TRUE),
+            pgp3_n_tested = sum(!is.na(pgp3_bin), na.rm = TRUE),
+            pgp3_mean = mean(pgp3_cont, na.rm = TRUE),
+            pgp3_log10mean = mean(pgp3_log10, na.rm = TRUE),
+            .groups = "drop") %>% 
+  mutate(pgp3_prev = pgp3_n_pos / pgp3_n_tested * 100)
+```
+
+**Quick diagnostic to hypothesize is FOI is age-dependent: plot -ln(seroprevalence) against age:**
+
+We expect a linear relationship if FOI is constant (see [Vynnycky and White text](https://anintroductiontoinfectiousdiseasemodelling.com/)).
+
+```{r, fig.width = 8.5}
+age_sero_results %>%
+  mutate(pgp3_prev_negln = ifelse(pgp3_prev == 0, 0, -log(pgp3_prev/100))) %>% 
+  ggplot(aes(x = age_years, y = pgp3_prev_negln)) +
+  geom_smooth(formula = y~x, color = "black",
+              lwd = 0.5, alpha = 0.5, method = "lm") +
+  geom_point(aes(fill = location_year_name), color = "black",
+             pch = 21, size = 1.5) +
+  scale_x_continuous(limits = c(0,10), breaks = c(0:10)) +
+  labs(y = "-ln(anti-pgp3 seroprevalence)", x = "age (years)") +
+  shared_theme +
+  facet_wrap(.~location_year_name, ncol = 4, scales = "free_y")
+```
+
+### Figure 1. Age-seroprevalence curves, most recent
+
+From Ben's notes:
+
+* Helpful blog post on random effects and splines: https://fromthebottomoftheheap.net/2021/02/02/random-effects-in-gams/
+* `mgcv::gam` and `lme4::glmer` produced fairly similar curves in a mini-test; `gam` was less wiggly
+
+```{r}
+## Example code for glmer
+# library(splines)
+# test_glmer <- lme4::glmer(sero_bin ~ bs(age_years, degree = 3) + (1|cluster_id),
+#                           data = combined_recent_df %>% filter(location_year_name == "Kongwa, Tanzania 2015"),
+#                           family = binomial(link = "logit"))
+# 
+# test_glmer_pred <- predict(test_glmer, newdata = new_df, re.form = ~0, se = FALSE, type = "response")
+```
+
+```{r}
+## `fit_age_sero_curve` function -----
+# fit age seroprevalence curves using cubic splines in `gam`
+# return fitted splines and 95% CIs
+age_sero_curve_results <- foreach(curr_lyn = unique(ind_df$location_year_name), .combine = rbind) %dopar% {
+  
+  temp_df <- ind_df %>%
+    mutate(cluster_id = as.factor(cluster_id),
+           dummy = 1) %>%
+    filter(location_year_name == curr_lyn)
+  
+  age_grid <- seq(1, max(temp_df$age_years), by = 0.1)
+  
+  mod <- mgcv::gam(pgp3_bin ~ s(age_years, k = 4, bs = "cr"), #+
+                     #s(cluster_id, bs = "re", by = dummy),
+                   data = temp_df,
+                   family = binomial(link = "logit"),
+                   #family = gaussian(),
+                   method = "REML")
+  
+  k_check <- mgcv::k.check(mod)
+  
+  new_df <- data.frame(age_years = age_grid,
+                       cluster_id = temp_df$cluster_id[1],
+                       dummy = 0)
+  
+  preds <- predict(mod, newdata = new_df, se = TRUE)
+  
+  ret <- data.frame(location_year_name = curr_lyn,
+                    study_id = unique(temp_df$study_id),
+                    location_name = unique(temp_df$location_name),
+                    year = unique(temp_df$year),
+                    age_years = age_grid,
+                    endemic_cat = unique(temp_df$endemic_cat),
+                    preds = expit(preds$fit) * 100,
+                    preds_lwrci = expit(preds$fit + qnorm(p = 0.025)*preds$se.fit) * 100,
+                    preds_uprci = expit(preds$fit + qnorm(p = 0.975)*preds$se.fit) * 100,
+                    k_index = k_check['s(age_years)','k-index'],
+                    k_index_pval = k_check['s(age_years)','p-value'])
+                    ## for gaussian fit
+                    # preds = preds$fit,
+                    # preds_lwrci = preds$fit + qnorm(p = 0.025)*preds$se.fit,
+                    # preds_uprci = preds$fit + qnorm(p = 0.975)*preds$se.fit)
+  
+  return(ret)
+  
+}
+```
+
+```{r}
+# age_sero_trendtest <- foreach(curr_lyn = unique(ind_df$location_year_name), .combine = rbind) %dopar% {
+#   temp_df <- age_sero_results %>% 
+#     filter(location_year_name == curr_lyn) %>% 
+#     arrange(age_years)
+#   
+#   trend_test <- trend::mk.test(x = c(temp_df %>% pull(pgp3_prev)),
+#                                alternative = "two.sided")
+#   
+#   data.frame(location_year_name = curr_lyn,
+#              mk_test_p = trend_test$p.value,
+#              mk_test_reject = ifelse(trend_test$p.value<=0.05, "p<=0.05","p>0.05"))
+# }
+
+# create shared theme
+temp_theme <- list(scale_color_manual(values = location_year_name_colors),
+                   scale_fill_manual(values = location_year_name_colors),
+                   theme_minimal(),
+                   theme(legend.position = "none"))
+
+get_age_sero_curve <- function(pcr_min, pcr_max){
+  
+  temp_df <- age_sero_curve_results %>%
+    left_join(cc_pcr_manual, by = "location_year_name") %>% 
+    left_join(lyn_all %>% dplyr::select(location_year_name, pcr_prev_median),
+              by = "location_year_name") 
+    #left_join(age_sero_trendtest, by = "location_year_name")
+    #mutate(pcr_prev_median = coalesce(pcr_prev_median, prev)) %>% 
+
+  temp_df %>% 
+    filter(age_years>0) %>% 
+      ggplot(aes(x = age_years, y = preds, color = location_year_name)) +
+      geom_line(lwd = 0.8) +
+      #geom_line(lwd = 0.8, aes(lty = as.factor(mk_test_reject))) +
+      # geom_point(data = age_sero_results  %>%
+      #                   filter(age_years>0) %>%
+      #                   filter(location_year_name %in% unique(temp_df$location_year_name)),
+      #            aes(x = age_years, y = pgp3_prev,
+      #                fill = location_year_name),
+      #                #size = pgp3_n_tested),
+      #            alpha = 0.6, size = 1) +
+      # scale_linetype_manual(values = c("p>0.05" = "dashed", "p<=0.05" = "solid"),
+      #                       name = "Mann-Kendall trend test") +
+      #scale_radius(range = c(1,7), breaks = seq(0 , 1000, by = 250), limits = c(1, 1000)) +
+      scale_x_continuous(breaks = seq(0, 9, by = 1)) +
+      scale_y_continuous(breaks = seq(0, 60, by = 10)) +
+      labs(x = "Age (years)", y = "Seroprevalence (%)",
+          size = "Sample size") +
+      guides(color = "none", fill = "none") +
+      coord_cartesian(ylim = c(0,60)) +
+      temp_theme +
+      theme(legend.position = c(0.2, 0.9), legend.key.height = unit(0.5, "cm"),
+            axis.title = element_text(size = 10),
+            axis.text = element_text(size = 9)) +
+      guides(linetype = guide_legend(ncol = 1))
+}
+
+age_sero_fig <- get_age_sero_curve(pcr_min = -Inf, pcr_max = Inf)
+
+# temp_lyn_order <- lyn_all %>% 
+#     #arrange(desc(sir_foi)) %>%
+#     mutate(sir_foi_median = ifelse(sir_foi_median<1e-10, 0, sir_foi_median)) %>% 
+#     arrange(desc(sir_foi_median), desc(pcr_prev_median), as.character(location_year_name)) %>% 
+#     pull(location_year_name)
+
+# order studies consistently with their order in Figure 1. 
+# this is by their seroconversion rates
+temp_lyn_order <- c(
+  "Wag Hemra, Ethiopia (WUHA) 2019",
+  "Wag Hemra, Ethiopia (TAITU) 2018",
+  "Andabet, Ethiopia 2017",
+  "Matameye, Niger (PRET) 2013",
+  "Kongwa, Tanzania 2013",
+  "Kongwa, Tanzania 2018",
+  "Chikwawa, Malawi 2014",
+  "Mchinji, Malawi 2014",
+  "Dera, Ethiopia 2017",
+  "Agdaz, Morocco 2019",
+  "Woreta town, Ethiopia 2017",
+  "Alefa, Ethiopia 2017",
+  "Boumalne Dades, Morocco 2019",
+  "Dosso, Niger (MORDOR) 2018"
+)
+
+## foi simple -----
+sir_foi_fig <- clu_all %>%
+    # restrict to clusters with at least minimum cluster size
+    filter(pgp3_n_tested >= min_clu_n) %>% 
+    mutate(sir_foi = sir_foi*100) %>% 
+    mutate(location_year_name = factor(location_year_name, levels = rev(temp_lyn_order))) %>% 
+    ggplot() +
+    geom_point(aes(x = location_year_name, y = sir_foi, color = location_year_name),
+               shape = "|", alpha = 0.8, size = 1.5) +
+    geom_boxplot(aes(x = location_year_name, y = sir_foi),
+                 color = "black", width = 0.5, outlier.shape = NA, fill = NA, lwd = 0.4) +
+    scale_x_discrete(labels = data.frame(location_year_name = temp_lyn_order) %>%
+                       left_join(location_year_name_short, by = "location_year_name") %>% 
+                       pull(lyn_short) %>% rev(), 
+                     limits = rev(temp_lyn_order)) +
+    scale_y_continuous(breaks = seq(0, 70, by = 10), limits = c(0,70)) + # note: this masks a single cluster in Wag Hemra (TAITU) that is close to 70 per 100 child years.
+    labs(x = NULL, y = "Seroconversion rate per 100 PY") +
+    coord_flip() +
+    temp_theme +
+    theme(legend.position = "none",
+          panel.grid.minor = element_blank(),
+          axis.text.x = element_text(size = 7),
+          axis.title.x = element_text(size = 8),
+          axis.text.y = element_text(color = rev(location_year_name_colors[temp_lyn_order]),
+                                     size = 8, hjust = 0.5))
+
+## foi reversible -----
+sis_foi_fig <- clu_all %>%
+    # restrict to clusters with at least minimum cluster size
+    filter(pgp3_n_tested >= min_clu_n) %>% 
+    mutate(sis_foi = sis_foi*100) %>% 
+    mutate(location_year_name = factor(location_year_name, levels = rev(temp_lyn_order))) %>% 
+    ggplot() +
+    geom_point(aes(x = location_year_name, y = sis_foi, color = location_year_name),
+               shape = "|", alpha = 0.8, size = 1.5) +
+    geom_boxplot(aes(x = location_year_name, y = sis_foi),
+                 color = "black", width = 0.5, outlier.shape = NA, fill = NA, lwd = 0.4) +
+    scale_x_discrete(limits = rev(temp_lyn_order)) +
+    scale_y_continuous(breaks = seq(0, 70, by = 10), limits = c(0,75)) +
+    labs(x = NULL, y = "SCR per 100 PY\n(SRR=6.6)") +
+    coord_flip() +
+    temp_theme +
+    theme(legend.position = "none",
+          panel.grid.minor = element_blank(),
+          axis.text.x = element_text(size = 7),
+          axis.title.x = element_text(size = 8),
+          axis.text.y = element_blank())
+
+## pcr ------
+cc_pcr_manual <- data.frame(location_year_name = c("Andabet, Ethiopia 2017",
+                                                   "Dera, Ethiopia 2017",
+                                                   "Woreta town, Ethiopia 2017",
+                                                   "Alefa, Ethiopia 2017"),
+                            prev = c(11.3, 0, 0, 0),
+                            stringsAsFactors = FALSE)
+
+pcr_fig <- clu_all %>%
+    # restrict to clusters with at least minimum cluster size
+    filter(pcr_n_tested >= min_clu_n) %>% 
+    mutate(location_year_name = factor(location_year_name, levels = rev(temp_lyn_order))) %>% 
+    ggplot() +
+    geom_point(aes(x = location_year_name, y = pcr_prev, color = location_year_name),
+               shape = "|", alpha = 0.8, size = 1.5) +
+    geom_boxplot(aes(x = location_year_name, y = pcr_prev),
+                 color = "black", width = 0.5, outlier.shape = NA, fill = NA, lwd = 0.4) +
+    geom_point(data = cc_pcr_manual %>% filter(location_year_name %in% temp_lyn_order),
+             aes(x = location_year_name, y = prev, fill = location_year_name),
+             alpha = 0.7, pch = 21, color = "black", size = 2) +
+  # add NA labels for studies without PCR measurements
+  annotate("text", x= c(1,2,5),y=1, label="NA", size=2) +
+    scale_x_discrete(limits = rev(temp_lyn_order)) +
+    scale_y_continuous(breaks = seq(0, 70, by = 10)) +
+    labs(x = NULL, y = "PCR prevalence (%)") +
+    coord_flip(ylim = c(0,72))+
+    temp_theme +
+    theme(legend.position = "none",
+          panel.grid.minor = element_blank(),
+          axis.text.x = element_text(size = 7),
+          axis.title.x = element_text(size = 8),
+          axis.text.y = element_blank())#,
+          #plot.margin = margin(0.2,0.2,0.5,0.2,unit = "cm"))
+
+```
+
+```{r, fig.width = 8.5, fig.height = 3.7}
+# combine and save figs
+combined_fig <- plot_grid(age_sero_fig, sir_foi_fig, pcr_fig, nrow = 1, rel_widths = c(1.2,1,0.55))
+
+combined_fig_wsub <- add_sub(
+  plot = combined_fig,
+  label = expression(paste(italic("Abbreviations: "), "PY = person-years; ETH = Ethiopia; NER = Niger; TZA = Tanzania; MWI = Malawi; MAR = Morocco")),
+  hjust = 0,
+  x = 0.02,
+  size = 8
+)
+
+ggdraw(combined_fig_wsub)
+
+if(save_figs) {
+  ggsave(filename = here("output", "fig2_age_sero_curves.png"),
+         ggdraw(combined_fig_wsub),
+         width = 8.5, height = 3.7, units = "in")
+}
+
+```
+
+## For text
+
+Across populations, estimated seroconversion rates ranged from `r round(min(lyn_all$sir_foi_median, na.rm = TRUE)*100,1)` to `r round(max(lyn_all$sir_foi_median, na.rm = TRUE)*100,1)` per 100 person-years (median: `r round(median(lyn_all$sir_foi_median, na.rm = TRUE)*100,1)`) using a catalytic model without seroreversion.
+
+## Session Info
+```{r session info}
+sessionInfo()
+```
