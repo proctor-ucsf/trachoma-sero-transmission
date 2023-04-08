@@ -355,6 +355,8 @@ temp_lyn_order <- c(
     geom_point(data = cc_pcr_manual %>% filter(location_year_name %in% temp_lyn_order),
                aes(x = location_year_name, y = prev, fill = location_year_name),
                alpha = 0.7, pch = 21, color = "black", size = 4) +
+    # add NA labels for studies without PCR measurements
+    annotate("text", x= c(1,2,5),y=1, label="NA", size=3.5) +
     scale_x_discrete(limits = rev(temp_lyn_order)) +
     scale_y_continuous(breaks = seq(0, 100, by = 20), limits = c(0,100)) +
     labs(x = NULL, y = "PCR prevalence (%)") +
@@ -377,6 +379,8 @@ temp_lyn_order <- c(
     #             width=0.1,alpha = 0.8, size = 1.2) +
     geom_boxplot(aes(x = location_year_name, y = tf_prev),
                  color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.8) +
+    # add NA labels for studies without TF measurements (MORDOR2015)
+    annotate("text", x= c(1),y=1, label="NA", size=3.5) +
     scale_x_discrete(limits = rev(temp_lyn_order)) +
     scale_y_continuous(breaks = seq(0, 100, by = 20), limits = c(0,100)) +
     labs(x = NULL, y = "TF prevalence (%)") +
@@ -398,14 +402,24 @@ temp_lyn_order <- c(
 }
 ```
 
-```{r, fig.width = 8.5, fig.height = 8.5, message = FALSE, warning = FALSE}
+```{r, fig.width = 8.5, fig.height = 10, message = FALSE, warning = FALSE}
 age_sero_combined_fig <- get_age_sero_curve_fig(incl_legend = FALSE)
 
-age_sero_combined_fig
+# age_sero_combined_fig
+
+age_sero_combined_fig_wsub <- add_sub(
+  plot = age_sero_combined_fig,
+  label = "* Estimates collected in population based survey \n† Serology, PCR, and TF measured among 1-5 year olds only\n‡ PCR prevalence measured only at the district-level among 1-5 year olds",
+  hjust = 0,
+  x = 0.02,
+  size = 12
+)
+
+ggdraw(age_sero_combined_fig_wsub)
 
 if(save_figs){
   ggsave(filename = here::here("output", "fig1_trach_summary.png"),
-         plot = age_sero_combined_fig,
+         plot = ggdraw(age_sero_combined_fig_wsub),
          width = 11, height = 12, units = "in")
 }
 ```

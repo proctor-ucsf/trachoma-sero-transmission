@@ -376,19 +376,20 @@ pcr_fig <- clu_all %>%
 # combine and save figs
 combined_fig <- plot_grid(age_sero_fig, sir_foi_fig, pcr_fig, nrow = 1, rel_widths = c(1.2,1,0.55))
 
-combined_fig_wsub <- add_sub(
-  plot = combined_fig,
-  label = expression(paste(italic("Abbreviations: "), "PY = person-years; ETH = Ethiopia; NER = Niger; TZA = Tanzania; MWI = Malawi; MAR = Morocco")),
-  hjust = 0,
-  x = 0.02,
-  size = 8
-)
+combined_fig
 
-ggdraw(combined_fig_wsub)
+# combined_fig_wsub <- add_sub(
+#   plot = combined_fig,
+#   label = expression(paste(italic("Abbreviations: "), "PY = person-years; ETH = Ethiopia; NER = Niger; TZA = Tanzania; MWI = Malawi; MAR = Morocco")),
+#   hjust = 0,
+#   x = 0.02,
+#   size = 8
+# )
+# ggdraw(combined_fig_wsub)
 
 if(save_figs) {
   ggsave(filename = here("output", "fig2_age_sero_curves.png"),
-         ggdraw(combined_fig_wsub),
+         combined_fig,
          width = 8.5, height = 3.7, units = "in")
 }
 
