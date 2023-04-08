@@ -5,35 +5,34 @@
 ### ----------------------
 
 ## load packages -----
-# general
-library(tidyverse)
-library(kableExtra)
+# reproducibile environment
+library(here)
+library(renv)
 
-# parallel processes
+# parallel computing
 library(foreach)
 library(doParallel)
 registerDoParallel(cores = detectCores() - 1)
 
+# general
+library(tidyverse)
+library(kableExtra)
 
-
-# bayesian
+# statistics
 library(mgcv)
-#library(bayesplot)
-#library(pbapply)
-#library(rstanarm)
 library(splines) # for bs() function
 library(wCorr) # weighted correlation
 library(pROC)
 
 # figures
 library(cowplot)
-#library(viridis)
+
 
 ## quick functions -----
 expit <- function(x){exp(x)/(1+exp(x))}
 '%ni%' <- Negate('%in%')
 
-## figure prep -----
+## figure global aesthetics -----
 
 # set order of location + year
 location_year_name_order <- c("Alefa, Ethiopia 2017", 
@@ -121,4 +120,4 @@ names(location_year_name_short) <- c("location_year_name", "lyn_short")
 
 ## local file paths -----
 final_data_path <- "~/Library/CloudStorage/Box-Box/trachoma-endgame/data/public-v2"
-# output_path <- "output/20221204_figs"
+
