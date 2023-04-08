@@ -7,7 +7,7 @@ Monitoring transmission intensity of trachoma with serology
 
 This repository includes R code to run all of the analysis for the paper:
 
-_Monitoring transmission intensity of trachoma with serology: a multi-country study_
+_Monitoring transmission intensity of trachoma with serology_
 
 Tedijanto et al. (in review)
 
@@ -16,13 +16,17 @@ Should you have any questions about the files in this repository, please contact
 ## Linked Repositories and Additional Resources
 
 ### Open Science Framework
-This GitHub repository is mirrored on the Open Science Framework (OSF).  The OSF project page includes additional study-related resources, including the compiled HTML computational notebooks created from the `.Rmd` files:
+This GitHub repository is mirrored on the Open Science Framework (OSF).  The OSF project page includes additional study-related resources, including the compiled HTML computational notebooks created from the `.Rmd` files, and the final analysis datasets that are created by `1-make-datasets.Rmd`.
 
 https://osf.io/e6j5a/
 
+This study draws from Version 2 of a larger public dataset that has been harmonized and made publicly available under the NIH-funded study: _Seroepidemiology of trachoma for the elimination endgame_ [R01-AI158884](https://reporter.nih.gov/search/Vp1i0zHsQkOOzfYshpRgOQ/project-details/10181859).
+
+https://osf.io/ykjc4/
+
 ### Dryad 
 
-The data will be archived on Dryad (pending)
+The harmonized data will eventually be archived on Dryad (pending)
 
 ## _Nature_ Research Code Submission Items
 
@@ -40,7 +44,9 @@ All analyses were run using R software version 4.2.2 on Mac OSX Big Sur using th
 
 ` Running under: macOS Big Sur ... 10.16`
 
-### Installation Guide
+In this repository we have created a Docker container and have used the `renv` package to archive the package versions so that you and reproduce the exact compute environment on an instance of R Studio Server, should you wish to do so. 
+
+### Installation Guide and Instructions for Use (Desktop)
 
 You can download and install R from CRAN: https://cran.r-project.org
 
@@ -50,23 +56,53 @@ All R packages required to run the analyses are sourced in the file `0-Config.R`
 
 The installation time should be < 10 minutes total on a typical desktop computer.
 
-### Instructions for Use
-
 To reproduce all analyses in the paper, we recommend that you: 
 
-1. clone the GitHub repository
+1. Clone the GitHub repository to your computer
 
-2. Create a `data` subdirectory and copy the two datasets from OSF or Dryad (**public data pending**)
+2. Recreate the exact package environment using the `renv` package. 
 
-3. Create an `output` subdirectory to store output. 
+3. All of the analysis scripts should run smoothly (scripts `1-xx` to `8-xx`). 
 
-4. All of the analysis scripts should run smoothly (scripts `1-xx` to `8-xx`). 
+### Installation Guide and Instructions for Use (Docker / RStudio Server)
 
-The first data processing script will create the final analysis datasets. You will need to modify the `final_data_path <-` statement in `0-Config.R` to point to the location of the data on your local computer.
+The repository includes a `Dockerfile` and archive of package versions in the `renv.lock` file that you can use to build a Docker image and then launch a container on R Studio Server. 
+
+You can download and install Docker from: https://docs.docker.com/get-docker/
+
+To do this
+
+1. Clone the GitHub repository to your computer
+
+2. Build a Docker Image from the repository. 
+
+For example, to create an image with the same name as the repository, from the command line:
+
+`docker build -t trachoma-sero-transmission  trachoma-sero-transmission/`
+
+This will take about 20-30 minutes to build the image because it needs to download and install R and all of the relevant package libraries.
+
+3. Launch an instance of the image on R Studio Server
+
+There are many ways to do this, but one example of this from the Terminal command line is:
+
+`docker run -e USER=ben -e PASSWORD=pass --rm -p 8787:8787 -v /Users/benarnold/trachoma-sero-transmission:/home/ben trachoma-sero-transmission`
+
+This launches the container and passes (arbitrary) credentials to RStudio Server. In this example, the Username is `ben` and the Password is `pass`. These could be anything you like -- you will just need to use them when you open your browser to access RStudio Server (next step)
+
+4. Navigate to your web browser and go to: `http://localhost:8787` and then enter the USER ID and PASSWORD specified in the last step to access RStudio Server.
+
+5. You can then interact with RStudio and the analysis files in a virtual instance of RStudio.
+
+### Additional details
+
+The first data processing script will download harmonized datasets from OSF and will create the final analysis datasets.
 
 You can run the `.Rmd` notebook scripts one-by-one or you can compile `0-trachoma-sero-transmission-run-all.R`, which is the file we used to run the final analyses (e.g., from the command line `R CMD BATCH 0-trachoma-sero-transmission-run-all.R &`).
 
-Running the all analyses on the above Mac desktop configuration required 23 minutes. 
+The data processing and analyses on the above Mac desktop configuration required 18 minutes to run. 
+
+After building an image on RStudio Server, all data processing and analyses also required 18 minutes to run.
 
 Note that the only script that takes very long is `2-estimate-foi.Rmd` because estimating the hundreds of reversible catalytic models is computationally slow. 
 
