@@ -18,7 +18,11 @@ number_sections: false
 
 * Restrict to clusters with at least 15 observations for serology, PCR, or TF. Rationale: since the analysis focuses on cluster-level estimates, we were concerned about estimating means or seroconversion rates with fewer observations.  The choice of 15 obs per cluster was pragmatic and based on examination of the exclusion criteria in charts (below).
 
-This script will be provided along with replication files for transparency but will not be able to be run. It creates the publicly available datasets that will be provided with the analysis scripts.  It creates two files: an individual level dataset `trachoma_sero_transmission_analysis_indiv.csv/.rds` and a cluster level dataset `trachoma_sero_transmission_analysis_cluster.csv/.rds`.  Note that the study includes some PCR and TF results that were only available at the cluster level (not individual level due to pooling) and so the cluster level dataset includes more children for PCR and TF indicators. All Pgp3 antibody data are available at the individual level.
+This script downloads de-identified, harmonized data that have been made publicly available through the Open Science Framework as part of a larger research agenda focused on the use of serology for trachoma elimination. https://osf.io/ykjc4/ 
+
+It creates two files: an individual level dataset `trachoma_sero_transmission_analysis_indiv.csv/.rds` and a cluster level dataset `trachoma_sero_transmission_analysis_cluster.csv/.rds`.  Note that the dataset includes some PCR and TF results that were only available at the cluster level (not individual level due to pooling) and so the cluster level dataset includes more children for PCR and TF indicators. All Pgp3 antibody data are available at the individual level.
+
+Please refer to codebooks and metadata stored with the original datasets for additional details: https://osf.io/vj8ts/
 
 ## Preamble
 
@@ -27,19 +31,33 @@ library(here)
 source(here("R/0-config.R"))
 ```
 
-## Read in data
+## Download public datasets
 
-Read in the base trachoma serology harmonized datasets (individual and cluster level)
+Download and read-in the trachoma serology harmonized datasets (individual and cluster level)
 
 ```{r read data}
 #---------------------------------
-# read in the trachoma serology
+# read in the harmonized,
+# trachoma serology
 # individual level dataset
+#
+# This public dataset is available
+# through the Open Science Framwork
+# use the OSF API through the osfr
+# package to download it into the 
+# local /data directory
 #
 # drop the "_public" suffix from
 # ID variables
 #---------------------------------
-ind_df <- read_rds(here(final_data_path,"trachoma_serology_public_data_indiv_v2.rds")) %>%
+
+# download the individual level dataset (V2)
+# trachoma_serology_public_data_indiv_v2.rds
+# https://osf.io/3qupf
+ind_osfinfo <- osf_retrieve_file("3qupf") %>%
+  osf_download(path=here("data"), conflicts = "overwrite", progress = TRUE)
+
+ind_df <- read_rds(file=ind_osfinfo$local_path) %>%
   rename(cluster_id = cluster_id_public,
          household_id = household_id_public,
          individual_id = individual_id_public) %>%
@@ -51,10 +69,23 @@ ind_df <- read_rds(here(final_data_path,"trachoma_serology_public_data_indiv_v2.
 # read in the trachoma serology
 # cluster level dataset
 #
+# This public dataset is available
+# through the Open Science Framwork
+# use the OSF API through the osfr
+# package to download it into the 
+# local /data directory
+#
 # drop the "_public" suffix from
 # ID variables
 #---------------------------------
-clu_df <- read_rds(here(final_data_path,"trachoma_serology_public_data_cluster_v2.rds")) %>%
+
+# download the cluster level dataset (V2)
+# trachoma_serology_public_data_cluster_v2.rds
+# https://osf.io/s62p4
+clu_osfinfo <- osf_retrieve_file("s62p4") %>%
+  osf_download(path=here("data"), conflicts = "overwrite", progress = TRUE)
+
+clu_df <- read_rds(file=clu_osfinfo$local_path) %>%
   rename(cluster_id = cluster_id_public) %>%
   # filter to included studies
   filter(study_id %in% c("Kongwa2013","Kongwa2018","Malawi2014","MORDOR2015","Morocco2019","PRET2013","TAITU2018","TCC-Ethiopia2017","WUHA2016")) %>%

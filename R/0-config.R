@@ -5,9 +5,11 @@
 ### ----------------------
 
 ## load packages -----
-# reproducibile environment
+
+# reproducibile environments
 library(here)
 library(renv)
+library(osfr)
 
 # parallel computing
 library(foreach)
@@ -119,5 +121,6 @@ location_year_name_short <- c("Alefa, Ethiopia 2017" = "Alefa, ETH",
 names(location_year_name_short) <- c("location_year_name", "lyn_short")
 
 ## local file paths -----
-final_data_path <- "~/Library/CloudStorage/Box-Box/trachoma-endgame/data/public-v2"
+# deprecated
+# final_data_path <- "~/Library/CloudStorage/Box-Box/trachoma-endgame/data/public-v2"
 
