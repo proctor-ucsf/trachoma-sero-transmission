@@ -55,7 +55,7 @@ study_df <- read_rds(here("data","trachoma_sero_transmission_analysis_study.rds"
 # and non-missing Pgp3 observations
 ind_df <- read_rds(here("data", "trachoma_sero_transmission_analysis_indiv.rds")) %>%
   left_join(study_df %>% select(location_year_name, endemic_cat), by ="location_year_name") %>%
-  filter(pgp3_minobs & !is.na(pgp3_bin))
+  filter(pgp3_minobs & !is.na(pgp3_pos))
 
 #------------------------------
 # load cluster-level estimates
@@ -112,10 +112,10 @@ cc_pcr_manual <- data.frame(location_year_name = c("Andabet, Ethiopia 2017",
 ```{r}
 age_sero_results <- ind_df %>%
   group_by(study_id, location_name, year, location_year_name, endemic_cat, age_years) %>%
-  summarise(pgp3_n_pos = sum(pgp3_bin == 1, na.rm = TRUE),
-            pgp3_n_tested = sum(!is.na(pgp3_bin), na.rm = TRUE),
-            pgp3_mean = mean(pgp3_cont, na.rm = TRUE),
-            pgp3_log10mean = mean(pgp3_log10, na.rm = TRUE),
+  summarise(pgp3_n_pos = sum(pgp3_pos == 1, na.rm = TRUE),
+            pgp3_n_tested = sum(!is.na(pgp3_pos), na.rm = TRUE),
+            pgp3_mean = mean(pgp3_mfi, na.rm = TRUE),
+            pgp3_log10mean = mean(pgp3_mfi_log10, na.rm = TRUE),
             .groups = "drop") %>% 
   mutate(pgp3_prev = pgp3_n_pos / pgp3_n_tested * 100)
 ```
@@ -168,7 +168,7 @@ age_sero_curve_results <- foreach(curr_lyn = unique(ind_df$location_year_name), 
   
   age_grid <- seq(1, max(temp_df$age_years), by = 0.1)
   
-  mod <- mgcv::gam(pgp3_bin ~ s(age_years, k = 4, bs = "cr"), #+
+  mod <- mgcv::gam(pgp3_pos ~ s(age_years, k = 4, bs = "cr"), #+
                      #s(cluster_id, bs = "re", by = dummy),
                    data = temp_df,
                    family = binomial(link = "logit"),

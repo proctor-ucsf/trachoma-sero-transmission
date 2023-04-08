@@ -84,7 +84,7 @@ lyn_all_summary_foi <- lyn_all_summary_foi %>%
 ```{r, fig.width = 8.5, fig.height = 6}
 age_hist <- ind_df %>%
   # limit to observations with Pgp3 measurements
-  filter(!is.na(pgp3_bin)) %>% 
+  filter(!is.na(pgp3_pos)) %>% 
   ggplot() +
   geom_histogram(aes(x = age_years, fill = location_year_name),
            color = "black", binwidth = 1, alpha = 0.8) +
@@ -106,12 +106,12 @@ if(save_figs){
 
 ```{r, fig.width = 8.5, fig.height = 7}
 pgp3_dist <- ind_df %>%
-  filter(!is.na(pgp3_nonneg)) %>%
+  filter(!is.na(pgp3_mfi_nonneg)) %>%
   ggplot() +
-  geom_histogram(aes(x = pgp3_nonneg, fill = location_year_name),
+  geom_histogram(aes(x = pgp3_mfi_nonneg, fill = location_year_name),
            color = "black", binwidth = 0.15) +
-  geom_vline(data = . %>% distinct(location_year_name, pgp3_cutoff),
-             aes(xintercept = pgp3_cutoff)) +
+  geom_vline(data = . %>% distinct(location_year_name, pgp3_mfi_cutoff),
+             aes(xintercept = pgp3_mfi_cutoff)) +
   scale_x_log10(breaks = scales::trans_breaks("log10", function(x) 10^x)(c(1, 1e5)),
                 labels = scales::trans_format("log10", scales::math_format(10^.x))) +
   labs(x = "Pgp3 IgG response (MFI-bg)",

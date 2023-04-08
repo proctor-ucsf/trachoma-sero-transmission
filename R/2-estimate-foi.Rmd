@@ -47,7 +47,7 @@ west_sr <- 0.066
 #---------------------------------
 ind_df <- read_rds(here("data","trachoma_sero_transmission_analysis_indiv.rds")) %>%
   filter(pgp3_minobs) %>%
-  filter(!is.na(pgp3_bin))
+  filter(!is.na(pgp3_pos))
 
 #---------------------------------
 # read the cluster level dataset
@@ -116,9 +116,9 @@ All force of infection model code borrows heavily from the following Github repo
 ## `get_sir_results`: function that returns FOI estimate from simple catalytic model -----
 get_sir_results <- function(df){
   
-  temp_df <- df %>% filter(!is.na(pgp3_bin))
+  temp_df <- df %>% filter(!is.na(pgp3_pos))
   
-  glm_fit <- tryCatch(glm(pgp3_bin~1, offset = log(age_years),
+  glm_fit <- tryCatch(glm(pgp3_pos~1, offset = log(age_years),
                           data = temp_df,
                           family = binomial(link = "cloglog")),
                       error = function(cond){return(cond$message)},
@@ -220,9 +220,9 @@ get_sis_results <- function(df, curr_sr){
   #print(paste0(unique(df$cluster_id), ", ", curr_sr))
   
   temp_df <- df %>% 
-    filter(!is.na(pgp3_bin)) %>% 
+    filter(!is.na(pgp3_pos)) %>% 
     group_by(age_years) %>%
-    summarise(pgp3_pos = sum(pgp3_bin),
+    summarise(pgp3_pos = sum(pgp3_pos),
               n = n(),
               .groups = "drop") %>% 
     dplyr::select(age_years, n, pgp3_pos)
@@ -346,9 +346,9 @@ avgFOI <- function(m, newdata, a1, a2, nreps = 10000) {
 ## `get_gam_results`: get FOI estimates from GAM (semiparametric spline) -----
 get_gam_results <- function(df){
   
-  temp_df <- df %>% filter(!is.na(pgp3_bin))
+  temp_df <- df %>% filter(!is.na(pgp3_pos))
   
-  temp_fit <- tryCatch(mgcv::gam(pgp3_bin~s(age_years, bs = "cr", k = 3),
+  temp_fit <- tryCatch(mgcv::gam(pgp3_pos~s(age_years, bs = "cr", k = 3),
                            data = temp_df,
                            family = binomial(link = "cloglog")),
                            #family = binomial(link = "logit")), # changed 07/19/22
@@ -393,9 +393,9 @@ We can also visualize the GAM curves:
 get_full_gam_results <- function(df) {
   eps <- 1e-07 # small value, to estimate FOI along the curve
   
-  temp_df <- df %>% filter(!is.na(pgp3_bin))
+  temp_df <- df %>% filter(!is.na(pgp3_pos))
   
-  temp_fit <- tryCatch(mgcv::gam(pgp3_bin~s(age_years, bs = "cr", k = 3),
+  temp_fit <- tryCatch(mgcv::gam(pgp3_pos~s(age_years, bs = "cr", k = 3),
                            data = temp_df,
                            family = binomial(link = "logit")),
                        error = function(cond){return(cond$message)},

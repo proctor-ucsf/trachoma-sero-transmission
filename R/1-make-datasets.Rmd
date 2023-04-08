@@ -176,7 +176,7 @@ Restrict to clusters with at least `r minobs` children measured by Pgp3 antibody
 # observations for Pgp3
 #---------------------------------
 clu_df4 <- clu_df3 %>%
-  mutate(pgp3_minobs = ifelse(pgp3_n_tested >= minobs,TRUE,FALSE),
+  mutate(pgp3_minobs = ifelse(pgp3_n_tested >= minobs & !is.na(pgp3_n_tested),TRUE,FALSE),
          pgp3_minobs_lab = ifelse(pgp3_n_tested >= minobs,
                               paste0("Pgp3 obs ≥",minobs),
                               paste0("Pgp3 obs <",minobs)
@@ -283,10 +283,15 @@ ind_df2 <- ind_df %>%
 #---------------------------------
 # confirm that the number of clusters
 # is consistent between the two files
+# strangely an NA is appearing in the 
+# first value of ind_df2$cluster_id
+# even though no values are missing
+# subtract off 1 to account for this (!)
+# confirmed there are 459, though!
 #---------------------------------
-length(unique(ind_df2$cluster_id[ind_df2$pgp3_minobs]))
+length(unique(ind_df2$cluster_id[ind_df2$pgp3_minobs]))-1
 nrow(clu_df5 %>% filter(pgp3_minobs))
-length(unique(ind_df2$cluster_id[ind_df2$pgp3_minobs])) == nrow(clu_df5 %>% filter(pgp3_minobs))
+length(unique(ind_df2$cluster_id[ind_df2$pgp3_minobs]))-1 == nrow(clu_df5 %>% filter(pgp3_minobs))
 
 #---------------------------------
 # confirm that all Pgp3 antibody
@@ -298,9 +303,9 @@ length(unique(ind_df2$cluster_id[ind_df2$pgp3_minobs])) == nrow(clu_df5 %>% filt
 # these numbers are limited to
 # clusters with >= 15 Pgp3 measures
 #---------------------------------
-sum(!is.na(ind_df2$pgp3_bin[ind_df2$pgp3_minobs]))
+sum(!is.na(ind_df2$pgp3_pos[ind_df2$pgp3_minobs]))
 sum(clu_df5$pgp3_n_tested[clu_df5$pgp3_minobs], na.rm=TRUE)
-sum(!is.na(ind_df2$pgp3_bin[ind_df2$pgp3_minobs])) == sum(clu_df5$pgp3_n_tested[clu_df5$pgp3_minobs], na.rm=TRUE)
+sum(!is.na(ind_df2$pgp3_pos[ind_df2$pgp3_minobs])) == sum(clu_df5$pgp3_n_tested[clu_df5$pgp3_minobs], na.rm=TRUE)
 
 #---------------------------------
 # list number of TF and PCR measures
@@ -380,7 +385,7 @@ lyn_all_summary <- clu_df5 %>%
 # number of individuals in location & year with any serology result
 # limit the totals to the clusters with >= 15 children tested for Pgp3
 n_df <- ind_df2 %>% 
-  filter(!is.na(pgp3_bin) & pgp3_minobs) %>% 
+  filter(!is.na(pgp3_pos) & pgp3_minobs) %>% 
   group_by(location_year_name, cluster_id) %>%
   mutate(nch = n()) %>%
   filter(nch>=15) %>%
@@ -392,7 +397,7 @@ n_df <- ind_df2 %>%
 m_df <- ind_df2 %>% 
   filter(pgp3_minobs) %>%
   group_by(location_year_name, cluster_id) %>% 
-  summarise(pgp3_n = sum(!is.na(pgp3_bin))) %>% 
+  summarise(pgp3_n = sum(!is.na(pgp3_pos))) %>% 
   count(location_year_name, name = "m") 
 
 # create dataset of location-year characteristics

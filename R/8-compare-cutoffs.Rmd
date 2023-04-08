@@ -63,7 +63,7 @@ lyn_all  <- read_rds(here("output","lyn_all_summary.rds")) %>%
 temp_cutoffs <- c(-1, -0.5, 0, 0.25, 0.5)
 
 cutoff_df <- ind_df %>% 
-  distinct(location_year_name, cutoff_orig = pgp3_cutoff) %>% 
+  distinct(location_year_name, cutoff_orig = pgp3_mfi_cutoff) %>% 
   mutate(cutoff_lowest = 10^(log10(cutoff_orig)-1),
          cutoff_lower = 10^(log10(cutoff_orig)-0.5),
          cutoff_higher = 10^(log10(cutoff_orig)+0.25),
@@ -79,16 +79,16 @@ cutoff_colors <- c("orig" = "black",
 
 # add cutoffs to individual data
 ind_df_co <- ind_df %>%
-  filter(!is.na(pgp3_cont)) %>%
+  filter(!is.na(pgp3_mfi)) %>%
   left_join(cutoff_df, by = "location_year_name") %>% 
   pivot_longer(cols = starts_with("cutoff_"),
                names_to = "cutoff_type",
                names_pattern = "cutoff_(.*)",
                values_to = "cutoff") %>% 
   dplyr::select(individual_id, cluster_id, location_year_name, age_years,
-                pgp3_cont, pgp3_nonneg, pgp3_bin, pgp3_cutoff,
+                pgp3_mfi, pgp3_mfi_nonneg, pgp3_pos, pgp3_mfi_cutoff,
                 cutoff, cutoff_type) %>% 
-  mutate(pgp3_bin_co = as.numeric(pgp3_cont>cutoff))
+  mutate(pgp3_pos_co = as.numeric(pgp3_mfi>cutoff))
 ```
 
 **Cutoffs by study population:**
@@ -96,7 +96,7 @@ ind_df_co <- ind_df %>%
 ```{r cutoffs all pops, fig.width = 8.5, fig.height = 8.5}
 ind_df_co %>% 
   ggplot() + 
-  geom_histogram(aes(x = pgp3_nonneg, fill = location_year_name),
+  geom_histogram(aes(x = pgp3_mfi_nonneg, fill = location_year_name),
                  color = "black", bins = 50, alpha = 0.9) +
   scale_fill_manual(values = location_year_name_colors) +
   geom_vline(data = . %>%  distinct(location_year_name, cutoff_type, cutoff),
@@ -120,8 +120,8 @@ ind_df_co %>%
 ```{r sp}
 sp_co <- ind_df_co %>% 
   group_by(location_year_name, cluster_id, cutoff_type) %>% 
-  summarise(pgp3_n_pos_co = sum(pgp3_bin_co, na.rm = TRUE),
-            pgp3_n_tested_co = sum(!is.na(pgp3_bin)),
+  summarise(pgp3_n_pos_co = sum(pgp3_pos_co, na.rm = TRUE),
+            pgp3_n_tested_co = sum(!is.na(pgp3_pos)),
             .groups = "drop") %>% 
   mutate(pgp3_prev_co = pgp3_n_pos_co / pgp3_n_tested_co * 100) # multiply by 100 for percent
 ```
@@ -136,7 +136,7 @@ get_scr <- function(curr_lyn, curr_co, curr_clu){
              cutoff_type == curr_co,
              cluster_id == curr_clu)
     
-    glm_fit <- tryCatch(glm(pgp3_bin_co~1, offset = log(age_years),
+    glm_fit <- tryCatch(glm(pgp3_pos_co~1, offset = log(age_years),
                           data = temp_df,
                           family = binomial(link = "cloglog")),
                       error = function(cond){return(cond$message)},
@@ -188,7 +188,7 @@ cutoff_fig <- ind_df_co %>%
                                                                                 "Dera, ETH", "Boumalne Dades, MAR"))) %>% 
   ggplot() + 
   geom_histogram(data = . %>% filter(cutoff_type == "orig"),
-                 aes(x = pgp3_nonneg, fill = location_year_name,
+                 aes(x = pgp3_mfi_nonneg, fill = location_year_name,
                      color = location_year_name),
                  bins = 50, alpha = 0.6) +
   scale_color_manual(values = location_year_name_colors) +
