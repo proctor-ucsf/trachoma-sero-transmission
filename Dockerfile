@@ -5,6 +5,8 @@ LABEL org.opencontainers.image.licenses="GPL-2.0-or-later" \
       org.opencontainers.image.vendor="Rocker Project" \
       org.opencontainers.image.authors="Carl Boettiger <cboettig@ropensci.org>"
 
+RUN /rocker_scripts/install_tidyverse.sh
+
 # load packages using renv
 RUN R -e "install.packages(c('renv'))"
 WORKDIR /project
