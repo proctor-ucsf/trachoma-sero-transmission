@@ -60,9 +60,15 @@ To reproduce all analyses in the paper, we recommend that you:
 
 1. Clone the GitHub repository to your computer
 
+For example, in the location on your computer where you would like to clone the repository, you could type into the Terminal command:
+
+`git clone https://github.com/proctor-ucsf/trachoma-sero-transmission.git`
+
 2. Recreate the exact package environment using the `renv` package. 
 
-3. All of the analysis scripts should run smoothly (scripts `1-xx` to `8-xx`). 
+You can do this by opening the R project file ([trachoma-sero-transmission.Rproj](https://github.com/proctor-ucsf/trachoma-sero-transmission/blob/main/trachoma-sero-transmission.Rproj)) in RStudio, loading the `renv` package, and typing `renv::restore()` to restore the package environment from the projects [renv.lock](https://github.com/proctor-ucsf/trachoma-sero-transmission/blob/main/renv.lock) file. 
+
+3. All of the analysis scripts should run smoothly (scripts `1-xx.Rmd` to `8-xx.Rmd`). 
 
 ### Installation Guide and Instructions for Use (Docker / RStudio Server)
 
@@ -74,15 +80,17 @@ To do this
 
 1. Clone the GitHub repository to your computer
 
+`git clone https://github.com/proctor-ucsf/trachoma-sero-transmission.git`
+
 2. Build a Docker Image from the repository. 
 
-For example, to create an image with the same name as the repository, from the command line:
+For example, to create an image with the same name as the repository, from the Terminal command line:
 
 `docker build -t trachoma-sero-transmission  trachoma-sero-transmission/`
 
 This will take about 20-30 minutes to build the image because it needs to download and install R and all of the relevant package libraries.
 
-3. Launch an instance of the image on R Studio Server
+3. Launch an instance of the image on RStudio Server
 
 There are many ways to do this, but one example of this from the Terminal command line is:
 
@@ -90,21 +98,21 @@ There are many ways to do this, but one example of this from the Terminal comman
 
 This launches the container and passes (arbitrary) credentials to RStudio Server. In this example, the Username is `ben` and the Password is `pass`. These could be anything you like -- you will just need to use them when you open your browser to access RStudio Server (next step)
 
-4. Navigate to your web browser and go to: `http://localhost:8787` and then enter the USER ID and PASSWORD specified in the last step to access RStudio Server.
+4. Navigate to your web browser and go to: `http://localhost:8787`, then enter the USER ID and PASSWORD specified in the last step to access RStudio Server.
 
-5. You can then interact with RStudio and the analysis files in a virtual instance of RStudio.
+5. You can then interact with RStudio and the analysis files in a virtual instance of RStudio Server, just as you normally would on your desktop.
 
 ### Additional details
 
 The first data processing script will download harmonized datasets from OSF and will create the final analysis datasets.
 
-You can run the `.Rmd` notebook scripts one-by-one or you can compile `0-trachoma-sero-transmission-run-all.R`, which is the file we used to run the final analyses (e.g., from the command line `R CMD BATCH 0-trachoma-sero-transmission-run-all.R &`).
+You can run the `.Rmd` notebook scripts one-by-one or you can compile [`0-trachoma-sero-transmission-run-all.R`](https://github.com/proctor-ucsf/trachoma-sero-transmission/blob/main/R/0-trachoma-sero-transmission-run-all.R), which is the file we used to run the final analyses (e.g., from the command line `R CMD BATCH 0-trachoma-sero-transmission-run-all.R &`).
 
 The data processing and analyses on the above Mac desktop configuration required 18 minutes to run. 
 
-After building an image on RStudio Server, all data processing and analyses also required 18 minutes to run.
+After building an image on RStudio Server, all data processing and analyses required about 40 minutes to run.
 
-Note that the only script that takes very long is `2-estimate-foi.Rmd` because estimating the hundreds of reversible catalytic models is computationally slow. 
+Note that the only script that takes very long is `2-estimate-foi.Rmd` because estimating the hundreds of reversible catalytic models is computationally slow. The other script that is a little bit slow is `6-compare-sero-pcr.Rmd`. 
 
 ### License
 
