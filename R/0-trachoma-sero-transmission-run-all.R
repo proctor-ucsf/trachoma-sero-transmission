@@ -8,23 +8,16 @@
 #
 # There are 8 scripts, run sequentially
 # and sequentially numbered in the repository
-#
-# NOTE: The first script cannot be
-# run on the publicly available data
-# It creates the public datasets, which
-# are used for all analyses. 
-# We have included them and their
-# output files (.html) for completeness.
 #-----------------------------------
 
 library(here)
 here::here()
 
 #-----------------------------------
-# Data processing
-# to create public data files
-#
-# (not run for public replication)
+# create analysis datasets
+# download larger file of publicly 
+# available data and process it
+# for analysis, saving analysis datasets
 #-----------------------------------
 rmarkdown::render(here::here("R/1-make-datasets.Rmd"),
                   output_file = here::here("R/1-make-datasets.html"))
