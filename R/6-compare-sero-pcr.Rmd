@@ -439,7 +439,7 @@ fig4_step3 <- step3 <- step1$grobs[[step2]]
 
 Figure 4
 
-```{r combine figs, fig.width = 8.5, fig.height = 5.4}
+```{r fig4, fig.width = 8.5, fig.height = 5.4}
 fig4 <- plot_grid(plot_grid(sp_all_fig_mda, sp_noMDA_fig, sp_MDA_fig, nrow = 1),
                   plot_grid(tf_all_fig_mda, tf_noMDA_fig, tf_MDA_fig, nrow = 1),
                   fig4_step3,
@@ -456,7 +456,7 @@ if(save_figs){
 
 Figure 5
 
-```{r figs4, fig.width = 8.5, fig.height = 5.4}
+```{r fig5, fig.width = 8.5, fig.height = 5.4}
 fig5 <- plot_grid(plot_grid(sp_all_fig, sp_1to9_fig, sp_1to5_fig, nrow = 1),
                   plot_grid(tf_all_fig, tf_1to9_fig, tf_1to5_fig, nrow = 1),
                   fig4_step3,

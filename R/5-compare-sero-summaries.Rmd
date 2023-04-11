@@ -67,17 +67,7 @@ lyn_all <- lyn_all %>%
   dplyr::select(-prev)
 
 ```
-
-```{r}
-clu_all %>% 
-  left_join(lyn_all %>% dplyr::select(location_year_name), by = "location_year_name") %>% 
-  filter(pcr_n_tested>=min_clu_n) %>% 
-  drop_na(pcr_prev) %>% 
-  filter(mda == 0) %>% 
-  pull(pcr_prev) %>% 
-  #range()
-  median(na.rm = TRUE)
-```
+s
 ```{r}
 # add helper function to create GAM CIs
 # from Ben's code here: https://github.com/ben-arnold/mordor-antibody/blob/master/R/mordor-ab-Functions.R

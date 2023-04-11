@@ -148,11 +148,6 @@ sens_spec_all_bylyn <- foreach(curr_lyn = lyn_all_list, .combine = rbind) %dopar
                            step = sens_spec_vars$step[x]
                           )}) %>% bind_rows() %>% mutate(location_year_name = curr_lyn)
 }
-
-# count positives out of total
-clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n) %>% nrow()
-clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n, pcr_prev==0) %>% nrow()
-clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n, pcr_prev>0, pgp3_prev>13.5) %>% nrow()
 ```
 
 ```{r}
@@ -183,10 +178,6 @@ sens_spec_1to5_bylyn <- foreach(curr_lyn = lyn_1to5_list, .combine = rbind) %dop
                            step = sens_spec_vars$step[x]
                           )}) %>% bind_rows() %>% mutate(location_year_name = curr_lyn)
 }
-
-# count positives out of total
-clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n, !is.na(pcr_prev)) %>% nrow()
-clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n, pcr_prev>0) %>% nrow()
 ```
 
 ```{r}
@@ -468,20 +459,20 @@ write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "si
 * Clusters with PCR measurements: `r clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n) %>% nrow()`
 * Clusters with PCR measurements with at least one infection detected: `r clu_all %>% filter(location_year_name %in% lyn_all_list, pcr_n_tested>= min_clu_n, pcr_n_pos>0) %>% nrow()`
 
-* Seroprevalence threshold for 90% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
-* Seroconversion (no seroreversion) threshold for 90% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
-* Seroprevalence threshold for 80% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
-* Seroconversion (no seroreversion) threshold for 80% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* Seroprevalence threshold for 90% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specificity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* Seroconversion (no seroreversion) threshold for 90% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specificity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* Seroprevalence threshold for 80% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specificity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* Seroconversion (no seroreversion) threshold for 80% sensitivity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specificity: `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
 
 * 1-5yo Clusters with PCR measurements: `r clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n) %>% nrow()`
 * 1-5yo Clusters with PCR measurements with at least one infection detected: `r clu_1to5 %>% filter(location_year_name %in% lyn_1to5_list, pcr_n_tested>= min_clu_n, pcr_n_pos>0) %>% nrow()`
 
-* 1-5yo Seroprevalence threshold for 90% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
-* 1-5yo Seroconversion (no seroreversion) threshold for 90% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
-* 1-5yo Seroprevalence threshold for 80% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
-* 1-5yo Seroconversion (no seroreversion) threshold for 80% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specficity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* 1-5yo Seroprevalence threshold for 90% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specificity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* 1-5yo Seroconversion (no seroreversion) threshold for 90% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specificity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* 1-5yo Seroprevalence threshold for 80% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specificity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
+* 1-5yo Seroconversion (no seroreversion) threshold for 80% sensitivity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff)`, specificity: `r sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% filter(sens>=0.8) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(spec) %>% round(2)`
 
-* Clusters in Dosso, Alefa, and Woreta town above 90% sensitivty threshold: `r clu_all %>% filter(pgp3_n_tested>=min_clu_n, location_year_name %in% c("Dosso, Niger (MORDOR) 2018", "Alefa, Ethiopia 2017", "Woreta town, Ethiopia 2017"), pgp3_prev>(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff))) %>% pull(pgp3_prev)`
+* Clusters in Dosso, Alefa, and Woreta town above 90% sensitivity threshold: `r clu_all %>% filter(pgp3_n_tested>=min_clu_n, location_year_name %in% c("Dosso, Niger (MORDOR) 2018", "Alefa, Ethiopia 2017", "Woreta town, Ethiopia 2017"), pgp3_prev>(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% filter(sens>=0.9) %>% arrange(desc(cutoff)) %>% slice(1) %>% pull(cutoff))) %>% nrow()`
 
 * 0.015 seroconversions: sensitivity = `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi", cutoff == "0.015") %>% pull(sens) %>% round(3)`, specificity = `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi", cutoff == "0.015") %>% pull(spec) %>% round(3)`
 * 6.0% seroprevalence: sensitivity = `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev", cutoff == "6") %>% pull(sens) %>% round(3)`, specificity = `r sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev", cutoff == "6") %>% pull(spec) %>% round(3)`
