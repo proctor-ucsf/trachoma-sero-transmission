@@ -72,13 +72,15 @@ You can do this by opening the R project file ([trachoma-sero-transmission.Rproj
 
 ### Installation Guide and Instructions for Use (Docker / RStudio Server)
 
-The repository includes a `Dockerfile` and archive of package versions in the `renv.lock` file that you can use to build a Docker image and then launch a container on R Studio Server. 
+The repository includes a `Dockerfile` and archive of package versions in the `renv.lock` file that you can use to build a Docker image and then launch a container on RStudio Server. 
 
 You can download and install Docker from: https://docs.docker.com/get-docker/
 
-To do this
+For MacOS users, we also recommend installing Homebrew to ensure git and docker work smoothly: https://docs.brew.sh/Installation
 
-1. Clone the GitHub repository to your computer
+After installing Docker and (optionally) homebrew, follow these steps:
+
+1. Clone the GitHub repository to your computer, from the Terminal command line:
 
 `git clone https://github.com/proctor-ucsf/trachoma-sero-transmission.git`
 
@@ -88,19 +90,21 @@ For example, to create an image with the same name as the repository, from the T
 
 `docker build -t trachoma-sero-transmission  trachoma-sero-transmission/`
 
-This will take about 20-30 minutes to build the image because it needs to download and install R and all of the relevant package libraries.
+This will take about 30 minutes to build the image because it needs to download and install R and all of the relevant package libraries.
 
 3. Launch an instance of the image on RStudio Server
 
-There are many ways to do this, but one example of this from the Terminal command line is:
+There are many ways to do this, but one example of this, from the Terminal command line:
 
 `docker run -e USER=ben -e PASSWORD=pass --rm -p 8787:8787 -v /Users/benarnold/trachoma-sero-transmission:/home/ben trachoma-sero-transmission`
 
 This launches the container and passes (arbitrary) credentials to RStudio Server. In this example, the Username is `ben` and the Password is `pass`. These could be anything you like -- you will just need to use them when you open your browser to access RStudio Server (next step)
 
-4. Navigate to your web browser and go to: `http://localhost:8787`, then enter the USER ID and PASSWORD specified in the last step to access RStudio Server.
+4. Navigate to your web browser and go to: `http://localhost:8787`, then enter the USER and PASSWORD specified in the last step to access RStudio Server.
 
-5. You can then interact with RStudio and the analysis files in a virtual instance of RStudio Server, just as you normally would on your desktop.
+5. You can then run RStudio and the analysis files in a virtual instance of RStudio Server, just as you normally would on your desktop. Analyses will be run on the remote server using Linux-Ubuntu. All of the analysis scripts should run smoothly (scripts `1-xx.Rmd` to `8-xx.Rmd`). 
+
+NOTE: we have not tested the above steps on a Windows or Linux desktop operating system (only macOS), but they should work similarly.
 
 ### Additional details
 
