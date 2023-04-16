@@ -22,7 +22,6 @@ here::here()
 rmarkdown::render(here::here("R/1-make-datasets.Rmd"),
                   output_file = here::here("R/1-make-datasets.html"))
 
-
 #-----------------------------------
 # Estimate seroconversion rates
 # (force of infection / FOI) using
@@ -35,7 +34,7 @@ rmarkdown::render(here::here("R/2-estimate-foi.Rmd"),
 
 #-----------------------------------
 # Summarize study means
-# Figure 1
+# Figure 1. Supporting Figs 1, 2
 #-----------------------------------
 rmarkdown::render(here::here("R/3-plot-study-means.Rmd"),
                   output_file = here::here("R/3-plot-study-means.html"))
@@ -61,7 +60,7 @@ rmarkdown::render(here::here("R/5-compare-sero-summaries.Rmd"),
 # Compare seroprevalence and SCR
 # with infection by PCR
 # also compare TF with PCR infection
-# Figures 4, 5. Supporting Figs 3, 4
+# Figures 4, 5. Supporting Fig 4
 #-----------------------------------
 rmarkdown::render(here::here("R/6-compare-sero-pcr.Rmd"),
                   output_file = here::here("R/6-compare-sero-pcr.html"))

@@ -409,7 +409,7 @@ age_sero_combined_fig <- get_age_sero_curve_fig(incl_legend = FALSE)
 
 age_sero_combined_fig_wsub <- add_sub(
   plot = age_sero_combined_fig,
-  label = "* Estimates collected in population based survey \n† Serology, PCR, and TF measured among 1-5 year olds only\n‡ PCR prevalence measured only at the district-level among 1-5 year olds",
+  label = "Abbreviations: n = number of individuals measured; m = number of clusters\n* Estimates collected in population based survey \n† Serology, PCR, and TF measured among 1-5 year olds only\n‡ PCR prevalence measured only at the district-level among 1-5 year olds",
   hjust = 0,
   x = 0.02,
   size = 12

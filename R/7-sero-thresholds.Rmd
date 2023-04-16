@@ -438,19 +438,39 @@ ggsave(filename = here("output", "figS6_sens_spec_sp_1to5.png"),
 # save tables
 
 # table s2. seroprevalence 1-9 year olds
-write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev"),
+write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% 
+            mutate_at(vars(sens,spec), ~round(.,3)) %>% mutate_at(vars(cutoff), ~round(.,2)) %>% 
+            dplyr::select("Seroprevalence threshold (%)" = cutoff,
+                          "Sensitivity" = sens,
+                          "Specificity" = spec),
           file = here("output", "tables2_sens_spec_sp.csv"))
 
 # table s3. seroconversion 1-9 year olds
-write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi"),
+write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% 
+            mutate(cutoff = cutoff*100) %>% 
+            mutate_at(vars(sens,spec), ~round(.,3)) %>% mutate_at(vars(cutoff), ~round(.,2)) %>% 
+            dplyr::select("Seroconversion rate per 100 PY
+threshold (no seroreversion)" = cutoff,
+                          "Sensitivity" = sens,
+                          "Specificity" = spec),
           file = here("output", "tables3_sens_spec_scr.csv"))
 
 # table s4. seroprevalence 1-5 year olds
-write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev"),
+write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% 
+            mutate_at(vars(sens,spec), ~round(.,3)) %>% mutate_at(vars(cutoff), ~round(.,2)) %>% 
+            dplyr::select("Seroprevalence threshold (%)" = cutoff,
+                          "Sensitivity" = sens,
+                          "Specificity" = spec),
           file = here("output", "tables4_sens_spec_sp_1to5.csv"))
 
 # table s5. seroconversion 1-9 year olds
-write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi"),
+write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% 
+            mutate(cutoff = cutoff*100) %>% 
+            mutate_at(vars(sens,spec), ~round(.,3)) %>% mutate_at(vars(cutoff), ~round(.,2)) %>% 
+            dplyr::select("Seroconversion rate per 100 PY
+threshold (no seroreversion)" = cutoff,
+                          "Sensitivity" = sens,
+                          "Specificity" = spec),
           file = here("output", "tables5_sens_spec_scr_1to5.csv"))
 ```
 

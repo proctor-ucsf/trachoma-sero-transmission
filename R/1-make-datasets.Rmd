@@ -452,7 +452,7 @@ study_df <- ind_df2 %>%
                                                                   "Boumalne Dades, Morocco 2019", "Agdaz, Morocco 2019"),
                                         paste0(location_year_name_nm, "*"), location_year_name_nm)) %>% 
   # denote cases where data collected among 1-5 only
-  mutate(location_year_name_nm = ifelse(location_name %in% c("Wag Hemra (TAITU), Ethiopia", "Dosso, Niger (MORDOR)", "Matameye, Niger (PRET)"),
+  mutate(location_year_name_nm = ifelse(location_name %in% c("Wag Hemra, Ethiopia (TAITU)", "Dosso, Niger (MORDOR)", "Matameye, Niger (PRET)"),
                                         paste0(location_year_name_nm, " †"), location_year_name_nm)) %>% 
   # denote CC only (district-level PCR, and for 1-5yo)
   mutate(location_year_name_nm = ifelse(location_year_name %in% c("Alefa, Ethiopia 2017", "Andabet, Ethiopia 2017", "Dera, Ethiopia 2017", "Woreta town, Ethiopia 2017"),
