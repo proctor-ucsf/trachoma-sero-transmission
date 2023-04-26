@@ -96,8 +96,9 @@ age_hist <- ind_df %>%
 age_hist
 
 if(save_figs){
-  ggsave(filename = here::here("output", "figS2_age_dist.png"),
+  ggsave(filename = here::here("output", "figS2_age_dist.pdf"),
          plot = age_hist,
+         device = cairo_pdf,
          width = 8.5, height = 6.5)
 }
 ```
@@ -139,8 +140,9 @@ clu_n <- clu_df %>%
 clu_n
 
 if(save_figs){
-  ggsave(filename = here::here("output", "figS1_clu_sample_sizes.png"),
+  ggsave(filename = here::here("output", "figS1_clu_sample_sizes.pdf"),
          plot = clu_n,
+         device = cairo_pdf,
          width = 8.5, height = 6.5)
 }
 ```
