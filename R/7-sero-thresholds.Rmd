@@ -401,8 +401,9 @@ sens_spec_fig <- plot_grid(plot_grid(sp_fig, roc_sp_fig, nrow = 1, labels = 'aut
 
 sens_spec_fig
 
-ggsave(filename = here("output", "fig6_sens_spec_sp.png"),
+ggsave(filename = here("output", "fig6_sens_spec_sp.pdf"),
        sens_spec_fig,
+       device = cairo_pdf,
        width = 8.5, height = 3.5, units = "in")
 ```
 
@@ -414,8 +415,9 @@ sens_spec_fig_scr <- plot_grid(plot_grid(sir_fig, roc_sir_fig, nrow = 1, labels 
 
 sens_spec_fig_scr
 
-ggsave(filename = here("output", "figS5_sens_spec_scr.png"),
+ggsave(filename = here("output", "figS5_sens_spec_scr.pdf"),
        sens_spec_fig_scr,
+       device = cairo_pdf,
        width = 8.5, height = 3.5, units = "in")
 ```
 
@@ -427,8 +429,9 @@ sens_spec_1to5_fig <- plot_grid(plot_grid(sp_fig_1to5, roc_sp_1to5_fig, nrow = 1
 
 sens_spec_1to5_fig
 
-ggsave(filename = here("output", "figS6_sens_spec_sp_1to5.png"),
+ggsave(filename = here("output", "figS6_sens_spec_sp_1to5.pdf"),
        sens_spec_1to5_fig,
+       device = cairo_pdf,
        width = 8.5, height = 3.5, units = "in")
 ```
 

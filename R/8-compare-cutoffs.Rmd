@@ -326,8 +326,9 @@ combined_fig <- plot_grid(cutoff_fig, sp_fig, scr_fig, ncol = 1,
 combined_fig
 
 if(save_figs) {
-  ggsave(filename = here::here("output", "figS7_cutoff_fig.png"),
+  ggsave(filename = here::here("output", "figS7_cutoff_fig.pdf"),
        combined_fig,
+       device = cairo_pdf,
        width = 8.5, height = 7, units = "in")
 }
 

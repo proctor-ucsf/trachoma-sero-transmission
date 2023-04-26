@@ -245,12 +245,14 @@ combined_fig
 sir_gam_fig
 
 if(save_figs) {
-  ggsave(filename = here::here("output", "fig3_sero_summaries.png"),
+  ggsave(filename = here::here("output", "fig3_sero_summaries.pdf"),
        plot = combined_fig,
+       device = cairo_pdf,
        width = 8.5, height = 6.5)
   
-  ggsave(filename = here::here("output", "figS3_sir_gam.png"),
+  ggsave(filename = here::here("output", "figS3_sir_gam.pdf"),
        plot = plot_grid(sir_gam_fig, step3, ncol = 1, labels = NA, rel_heights = c(1, 0.25)),
+       device = cairo_pdf,
        width = 8.5, height = 8)
   
 }
@@ -288,8 +290,9 @@ aic_fig <- aic_df %>%
 aic_fig
 
 if(save_figs) {
-  ggsave(filename = here::here("output", "figS8_aic_compare.png"),
+  ggsave(filename = here::here("output", "figS8_aic_compare.pdf"),
        plot = aic_fig,
+       device = cairo_pdf,
        width = 8.5, height = 7.5)
   
 }

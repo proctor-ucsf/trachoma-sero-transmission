@@ -448,8 +448,9 @@ fig4 <- plot_grid(plot_grid(sp_all_fig_mda, sp_noMDA_fig, sp_MDA_fig, nrow = 1),
 fig4
 
 if(save_figs){
-  ggsave(filename = here("output", "fig4_sero_tf_mda_pearson_wt.png"),
+  ggsave(filename = here("output", "fig4_sero_tf_mda_pearson_wt.pdf"),
          fig4,
+         device = cairo_pdf,
          width = 8.5, height = 5.4, units = "in")
 }
 ```
@@ -465,8 +466,9 @@ fig5 <- plot_grid(plot_grid(sp_all_fig, sp_1to9_fig, sp_1to5_fig, nrow = 1),
 fig5
 
 if(save_figs){
-  ggsave(filename = here("output", "fig5_sero_tf_age_pearson_wt.png"),
+  ggsave(filename = here("output", "fig5_sero_tf_age_pearson_wt.pdf"),
          fig5,
+         device = cairo_pdf,
          width = 8.5, height = 5.4, units = "in")
 }
 ```
@@ -482,8 +484,9 @@ figS4 <- plot_grid(plot_grid(sir_all_fig, sir_noMDA_fig, sir_MDA_fig, nrow = 1),
 figS4
 
 if(save_figs){
-  ggsave(filename = here("output", "figS4_sir_pcr_pearson_wt.png"),
+  ggsave(filename = here("output", "figS4_sir_pcr_pearson_wt.pdf"),
          figS4,
+         device = cairo_pdf,
          width = 8.5, height = 5.7, units = "in")
  }
 ```

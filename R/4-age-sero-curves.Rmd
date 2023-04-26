@@ -388,8 +388,9 @@ combined_fig
 # ggdraw(combined_fig_wsub)
 
 if(save_figs) {
-  ggsave(filename = here("output", "fig2_age_sero_curves.png"),
+  ggsave(filename = here("output", "fig2_age_sero_curves.pdf"),
          combined_fig,
+         device = cairo_pdf,
          width = 8.5, height = 3.7, units = "in")
 }
 

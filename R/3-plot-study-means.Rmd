@@ -418,8 +418,9 @@ age_sero_combined_fig_wsub <- add_sub(
 ggdraw(age_sero_combined_fig_wsub)
 
 if(save_figs){
-  ggsave(filename = here::here("output", "fig1_trach_summary.png"),
+  ggsave(filename = here::here("output", "fig1_trach_summary.pdf"),
          plot = ggdraw(age_sero_combined_fig_wsub),
+         device = cairo_pdf,
          width = 11, height = 12, units = "in")
 }
 ```
