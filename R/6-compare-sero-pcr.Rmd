@@ -1,5 +1,6 @@
 ---
-title: "Trachoma endgame serology: compare trachoma indicators"
+title: "Monitoring transmission intensity of trachoma with serology"
+subtitle: "Compare trachoma indicators"
 author: "Christine Tedijanto christine.tedijanto@ucsf.edu"
 date: "Last updated: `r Sys.Date()`"
 output:
