@@ -35,8 +35,19 @@ min_clu_n <- 15
 save_figs <- TRUE 
 ```
 
+# Load data
 
 ```{r read data}
+
+#------------------------------
+# load indiv level data to
+# estimate the SCR among 1-5y
+# for comparisons below (not
+# completed in main SCR script)
+#------------------------------
+ind_df <- read_rds(here("data","trachoma_sero_transmission_analysis_indiv.rds")) %>%
+  filter(pgp3_minobs) %>%
+  filter(!is.na(pgp3_pos))
 
 #------------------------------
 # load cluster-level estimates
@@ -66,312 +77,778 @@ lyn_all <- lyn_all %>%
   mutate(pcr_prev_median = coalesce(prev, pcr_prev_median)) %>% 
   dplyr::select(-prev)
 
+#------------------------------
+# create a cluster-level dataset
+# restricted to pops with 1-9y
+# for convenience
+# two studies did not measure
+# PCR in children 6-9 y
+# so they are excluded here
+#------------------------------
+clu_1to9 <- clu_all %>%
+  filter(!location_year_name %in% c("Wag Hemra, Ethiopia (TAITU) 2018",
+                                   "Matameye, Niger (PRET) 2013")
+         )
+
 ```
 
-### Bootstrap setup
+# Estimate study-level SCR among 1-5y
 
-```{r bootstrap}
-n_bs <- 1000
+These estimates were not created at the study level in the main force of infection (FOI) estimation script, `2-estimate-foi.Rmd`, so add them here.
 
-set.seed(123)
-bs_list <- lapply(c(1:n_bs),
-                  function(x){
-                    clu_all %>% 
-                      distinct(location_year_name, cluster_id) %>%
-                      group_by(location_year_name) %>%
-                      mutate(!!paste0("bs_", x) := sample(cluster_id, size = n(), replace = TRUE)) %>% 
-                      ungroup() %>% 
-                      dplyr::select(starts_with("bs"))
-                  }) %>% bind_cols()
-
-bs_df <- clu_all %>% 
-  distinct(location_year_name, cluster_id) %>% 
-  bind_cols(bs_list)
-
-get_bs_cor <- function(temp_bs_df, x_var, y_var){
-  
-  temp_cor <- lapply(c(1:n_bs),
-                     function(i){
-                       temp_clu_df <- bs_df %>% 
-                         dplyr::select(location_year_name, bs = eval(paste0("bs_", i))) %>% 
-                         left_join(temp_bs_df %>% dplyr::select(cluster_id, pgp3_n_tested, x = eval(x_var), y = eval(y_var)),
-                                   by = c("bs"="cluster_id"))
-                       
-                       temp_lyn_df <- temp_clu_df %>% 
-                         group_by(location_year_name) %>% 
-                         summarise(pgp3_n_tested = sum(pgp3_n_tested, na.rm = TRUE),
-                                   x_median = median(x, na.rm = TRUE),
-                                   y_median = median(y, na.rm = TRUE),
-                                   .groups = "drop")
-                       
-                       cor_clu_df <- temp_clu_df %>% 
-                         filter(!is.na(x), !is.na(y)) %>% 
-                         filter(location_year_name %ni% c("Alefa, Ethiopia 2017", "Dera, Ethiopia 2017",
-                                                          "Woreta town, Ethiopia 2017", "Andabet, Ethiopia 2017")) %>% 
-                         group_by(location_year_name) %>%
-                         summarise(cor = tryCatch({cor(x, y, method = "pearson", use = "complete.obs")},
-                                                  error=function(cond){0},
-                                                  warning=function(cond){0}),
-                                   n = n(),
-                                   .groups = "drop")
-                       
-                       data.frame(clu_cor = weighted.mean(cor_clu_df$cor, cor_clu_df$n),
-                                  lyn_cor = cor(temp_lyn_df$x_median, temp_lyn_df$y_median, use = "complete.obs", method = "pearson"))
-                       
-                       # data.frame(clu_cor = wCorr::weightedCorr(temp_clu_df$x, temp_clu_df$y, weights = pgp3_n_tested, method = "Spearman"),
-                       #            lyn_cor = wCorr::weightedCorr(temp_lyn_df$x_median, temp_lyn_df$y_median, weights = pgp3_n_tested, method = "Spearman"))
-                       }) %>% bind_rows()
+```{r estimate scr among 1 to 5}
+#------------------------------
+# loop over studies and 
+# estimate SCR using an SIR
+# model with a constant rate
+#------------------------------
+scr_ests_1to5 <- foreach(lyni = unique(ind_df$location_year_name), .combine = rbind) %do% {
+  di <- ind_df %>%
+    filter(location_year_name == lyni & age_years >=1 & age_years <= 5)
+  glm_fit <- glm(pgp3_pos~1, offset = log(age_years), data = di, family = binomial(link = "cloglog"))
+  lambda <- as.numeric(exp(glm_fit$coefficients))
+  return(data.frame(location_year_name = lyni, sir_foi_1to5 = lambda)) 
 }
+
+#------------------------------
+# merge estimates to the 
+# study level data
+#------------------------------
+lyn_all <- lyn_all %>%
+  left_join(scr_ests_1to5, by = "location_year_name")
 ```
 
-### Figure setup
+```{r stratify estimates for taitu}
+#------------------------------
+# for TAITU2018, there are 
+# clusters that are MDA and 
+# no MDA in the RCT. Create
+# study level summaries of these
+# two subgroups for this analysis
+# and replace the overall means
+# in the study-level file
+#------------------------------
+taitu2018 <- ind_df %>% 
+  filter(study_id == "TAITU2018")
+# PCR, seroprev, and TF prev
+taitu2018_bymda <- taitu2018 %>%
+  group_by(study_id,location_year_name,mda,cluster_id) %>%
+  summarize(pgp3_prev = mean(pgp3_pos, na.rm = TRUE),
+            pcr_prev = mean(pcr, na.rm = TRUE), 
+            tf_prev = mean(tf, na.rm = TRUE),
+            .groups = "drop") %>%
+  group_by(study_id,location_year_name,mda) %>%
+  summarize(pgp3_prev_median = median(pgp3_prev)*100,
+            pcr_prev_median = median(pcr_prev)*100,
+            tf_prev_median = median(tf_prev)*100,
+            .groups = "drop")
+# SCRs
+taitu2018_fit_mda <- glm(pgp3_pos~1, offset = log(age_years), data = taitu2018 %>% filter(mda==1), family = binomial(link = "cloglog"))
+taitu2018_fit_nomda <- glm(pgp3_pos~1, offset = log(age_years), data = taitu2018 %>% filter(mda==0), family = binomial(link = "cloglog"))
+taitu2018_scr_mda <- as.numeric(exp(taitu2018_fit_mda$coefficients))
+taitu2018_scr_nomda <- as.numeric(exp(taitu2018_fit_nomda$coefficients))
+taitu2018_bymda <- taitu2018_bymda %>%
+  mutate(sir_foi_1to5_recode = ifelse(mda == 0, taitu2018_scr_nomda, taitu2018_scr_mda)) %>%
+  rename(mda_recode = mda,
+         pgp3_prev_recode = pgp3_prev_median,
+         pcr_prev_recode = pcr_prev_median,
+         tf_prev_recode = tf_prev_median)
 
-```{r}
-get_trach_compare_fig <- function(df, x_var, x_n, x_lab, x_max, y_var, y_n, y_lab, incl_pop_pts = FALSE, incl_xy = FALSE, incl_cc = TRUE){
+lyn_all <- lyn_all %>%
+  left_join(taitu2018_bymda, by = c("study_id","location_year_name")) %>%
+  mutate(
+    mda = ifelse(study_id == "TAITU2018", mda_recode, mda),
+    pgp3_prev_median = ifelse(study_id == "TAITU2018", pgp3_prev_recode, pgp3_prev_median),
+    pcr_prev_median = ifelse(study_id == "TAITU2018", pcr_prev_recode, pcr_prev_median),
+    tf_prev_median = ifelse(study_id == "TAITU2018", tf_prev_recode, tf_prev_median),
+    sir_foi_1to5 = ifelse(study_id == "TAITU2018", sir_foi_1to5_recode, sir_foi_1to5)
+         )
+
   
-  ret <- df %>% 
-    ggplot() +
-    geom_point(data = . %>%
-                 filter(get(x_n)>=min_clu_n, get(y_n)>=min_clu_n) %>% 
-                 filter(!is.na(get(x_var)), !is.na(get(y_var))),
-               aes(x = get(x_var), y = get(y_var),
-                   color = location_year_name),
+
+```
+
+
+# Estimate correlations
+
+Use pearson correlation ($r$)
+
+For inference of cluster level correlation, bootstrap resample clusters with replacement, stratified by study.
+
+For interference of study level correlation, use the Pearson product moment estimator, implemented in `cor.test()`.
+
+```{r correlation bootstrap function}
+#------------------------------
+# function to stratify by study
+# and bootstrap resample clusters
+# used w/in foreach below
+# assumes a data frame with a
+# variable location_year_name
+# used to stratify, and then 
+# estimate correlation
+# between columns 2 and 3
+#------------------------------
+boot_cor <- function(df,breps=1000) {
+  boot_ests <- foreach(booti = 1:breps, .combine = rbind) %dopar% {
+    set.seed(booti)
+    di <- df %>%
+    group_by(location_year_name) %>%
+    slice_sample(prop = 1, replace = TRUE)
+    cori <- cor(di[,2],di[,3],method = "pearson")
+    return(cori)
+  }
+  return(boot_ests)
+}
+
+#------------------------------
+# formatting functions for
+# correlation ests and 95% CIs
+#------------------------------
+cl_corlab <- function(corest,corlb,corub) {
+  paste0("Cluster-level r (95% CI): ", sprintf("%1.2f",corest), " (", sprintf("%1.2f",corlb), ",",sprintf("%1.2f",corub), ")")
+}
+
+lyn_corlab <- function(corest,corlb,corub) {
+  paste0("Population-level r (95% CI): ", sprintf("%1.2f",corest), " (", sprintf("%1.2f",corlb), ",",sprintf("%1.2f",corub), ")")
+}
+
+#------------------------------
+# plotting function for
+# cluster level values and
+# study level values
+#------------------------------
+corplot <- function(dcor,dcor2,
+                     xvar,xvar2,xlab,xlim=100,
+                     yvar,yvar2,ylab,
+                     corlab,corlab2) {
+  # dcor  : dataset for cluster level values
+  # dcor2 : dataset for study level values
+  # xvar  : x variable in the cluster level dataset
+  # xvar2 : x variable in the study level dataset
+  # xlab  : label for x-axis
+  # xlim  : upper limit for x-axis
+  # yvar  : y variable in the cluster level dataset
+  # yvar2 : y variable in the study level dataset
+  # ylab  : label for y-axis
+  # corlab: formatted correlation and 95% CI to print for cluster level
+  # corlab2 : formatted correlation and 95% CI to print for study level
+  
+  ggplot() +
+  geom_abline(intercept=0,slope=1,linetype = "dotted") + 
+  geom_point(data = dcor , aes(x = get(xvar), y = get(yvar), color = location_year_name),
                alpha = 0.5, size = 1,
                show.legend = FALSE) +
     scale_fill_manual(values = location_year_name_colors) +
     scale_color_manual(values = location_year_name_colors) +
-    labs(x = x_lab, y = y_lab) +
+    labs(x = xlab, y = ylab) +
     theme_minimal() +
-    lims(x = c(0, x_max), y = c(0,100)) +
-    theme(axis.title = element_text(size = 11),
-          axis.text = element_text(size = 10),
+    lims(x = c(0, xlim), y = c(0,100)) +
+    theme(axis.title = element_text(size = 10),
+          axis.text = element_text(size = 9),
           legend.position = "none",
-          legend.title = element_blank())
-  
-  if(incl_xy){
-    ret <- ret + 
-      geom_line(data = data.frame(x_line = c(0,100), y_line = c(0,100)), aes(x = x_line, y = y_line), color = "black", lty = "dotted")
-  }
-  
-  temp_bs_df <- df %>% 
-    left_join(cc_pcr_manual, by = "location_year_name") %>% 
-    mutate(pcr_prev = coalesce(prev, pcr_prev)) %>% 
-    mutate(pcr_n_tested = ifelse(study_id == "TCC-Ethiopia2017", pgp3_n_tested, pcr_n_tested)) %>%
-    mutate(tf_n_tested = ifelse(study_id == "TCC-Ethiopia2017", pgp3_n_tested, tf_n_tested)) %>%
-    filter(get(x_n)>=min_clu_n, get(y_n)>=min_clu_n) %>%
-    filter(!is.na(get(x_var)), !is.na(get(y_var)))
-  
-  bs_cor <- get_bs_cor(temp_bs_df = temp_bs_df, x_var = x_var, y_var = y_var)
-  
-  clu_cor_df <- temp_bs_df %>%
-    filter(location_year_name %ni% c("Alefa, Ethiopia 2017", "Dera, Ethiopia 2017",
-                                     "Woreta town, Ethiopia 2017", "Andabet, Ethiopia 2017")) %>% 
-    group_by(location_year_name) %>%
-    summarise(cor = tryCatch({cor(get(x_var), get(y_var), method = "pearson", use = "complete.obs")},
-                             error=function(cond){0},
-                             warning=function(cond){0}),
-              n = n(),
-              .groups = "drop")
-  clu_cor <- weighted.mean(clu_cor_df$cor, clu_cor_df$n) %>% round(digits = 2)
-  # clu_cor <- cor(temp_bs_df %>% pull(get(x_var)),
-  #                temp_bs_df %>% pull(get(y_var)),
-  #                use = "complete.obs", method = "pearson") %>% round(digits = 2)
-  # clu_cor <- wCorr::weightedCorr(temp_bs_df %>% pull(get(x_var)),
-  #                                temp_bs_df %>% pull(get(y_var)),
-  #                                weights = temp_bs_df %>% pull(pgp3_n_tested),
-  #                                method = "Spearman") %>% round(digits = 2)
-  clu_cor_2.5 <- quantile(bs_cor$clu_cor, 0.025, na.rm=TRUE) %>% round(2)
-  clu_cor_97.5 <- quantile(bs_cor$clu_cor, 0.975, na.rm=TRUE) %>% round(2)
-  
-  ret <- ret +
-   geom_label(data = data.frame(x = 1, y = 1),
-              #label = paste0("Cluster-level \u03C1 (95% CI): ", clu_cor, " (", clu_cor_2.5, ",",clu_cor_97.5, ")"),
-              label = paste0("Cluster-level r (95% CI): ", clu_cor, " (", clu_cor_2.5, ",",clu_cor_97.5, ")"),
-              x = 0, y = 97, size = 2.5, color = "black", hjust = 0, fill = "white", alpha = 0.8,
-              label.size = NA)
-  
-  if(incl_pop_pts){
-    
-    temp_lyn_df <- temp_bs_df %>% 
-      group_by(location_year_name) %>% 
-      summarise(pgp3_n_tested = sum(pgp3_n_tested, na.rm = TRUE),
-                x_median = median(get(x_var), na.rm = TRUE),
-                y_median = median(get(y_var), na.rm = TRUE),
-                .groups = "drop") 
-    
-    if(!incl_cc){
-      temp_lyn_df <- temp_lyn_df %>% 
-        filter(location_year_name %ni% c("Alefa, Ethiopia 2017", "Dera, Ethiopia 2017",
-                                     "Woreta town, Ethiopia 2017", "Andabet, Ethiopia 2017"))
-    }
-    
-    lyn_cor <- cor(temp_lyn_df$x_median, temp_lyn_df$y_median,
-                   use = "complete.obs", method = "pearson") %>% round(digits = 2)
-    # lyn_cor <- wCorr::weightedCorr(temp_lyn_df$x_median,
-    #                                temp_lyn_df$y_median,
-    #                                weights = temp_lyn_df$pgp3_n_tested,
-    #                                method = "Spearman") %>% round(digits = 2)
-    lyn_cor_2.5 <- quantile(bs_cor$lyn_cor, 0.025, na.rm=TRUE) %>% round(2)
-    lyn_cor_97.5 <- quantile(bs_cor$lyn_cor, 0.975, na.rm=TRUE) %>% round(2)
-      
-    ret <- ret +
-      geom_point(data = temp_lyn_df,
-               aes(x = x_median, y = y_median,
+          legend.title = element_blank(),
+          plot.margin = margin(t=16.5,r=5.5,b=5.5,l=5.5,unit="pt")
+          ) + 
+  geom_label(data = data.frame(x = 1, y = 1),
+              label = corlab,
+              x = 0, y = 97, size = 2, color = "black", hjust = 0, fill = "white", alpha = 0.8,
+              label.size = NA) +
+  geom_point(data = dcor2,
+               aes(x = get(xvar2), y = get(yvar2),
                    fill = location_year_name),
                color = "black", pch = 21, alpha = 0.9,
                size = 2.5) +
       geom_label(data = data.frame(x = 1, y = 1),
-              #label = paste0("Population-level \u03C1 (95% CI): ", lyn_cor, " (", lyn_cor_2.5, ",",lyn_cor_97.5, ")"),
-              label = paste0("Population-level r (95% CI): ", lyn_cor, " (", lyn_cor_2.5, ",",lyn_cor_97.5, ")"),
-              x = 0, y = 88, size = 2.5, color = "black", hjust = 0, fill = "white", alpha = 0.8,
+              label = corlab2,
+              x = 0, y = 88, size = 2, color = "black", hjust = 0, fill = "white", alpha = 0.8,
               label.size = NA)
-  }
+  
+}
 
-  return(ret)
+#------------------------------
+# plotting function for
+# cluster level values and
+# study level values
+# slight variation for SCR:
+# take away 1:1 line
+#------------------------------
+corplot_scr <- function(dcor,dcor2,
+                     xvar,xvar2,xlab,xlim=100,
+                     yvar,yvar2,ylab,
+                     corlab,corlab2) {
+  # dcor  : dataset for cluster level values
+  # dcor2 : dataset for study level values
+  # xvar  : x variable in the cluster level dataset
+  # xvar2 : x variable in the study level dataset
+  # xlab  : label for x-axis
+  # xlim  : upper limit for x-axis
+  # yvar  : y variable in the cluster level dataset
+  # yvar2 : y variable in the study level dataset
+  # ylab  : label for y-axis
+  # corlab: formatted correlation and 95% CI to print for cluster level
+  # corlab2 : formatted correlation and 95% CI to print for study level
+  
+  ggplot() +
+  # geom_abline(intercept=0,slope=1,linetype = "dotted") + 
+  geom_point(data = dcor , aes(x = get(xvar), y = get(yvar), color = location_year_name),
+               alpha = 0.5, size = 1,
+               show.legend = FALSE) +
+    scale_fill_manual(values = location_year_name_colors) +
+    scale_color_manual(values = location_year_name_colors) +
+    labs(x = xlab, y = ylab) +
+    theme_minimal() +
+    lims(x = c(0, xlim), y = c(0,100)) +
+    theme(axis.title = element_text(size = 10),
+          axis.text = element_text(size = 9),
+          legend.position = "none",
+          legend.title = element_blank(),
+          plot.margin = margin(t=16.5,r=5.5,b=5.5,l=5.5,unit="pt")
+          ) + 
+  geom_label(data = data.frame(x = 1, y = 1),
+              label = corlab,
+              x = 0, y = 97, size = 2, color = "black", hjust = 0, fill = "white", alpha = 0.8,
+              label.size = NA) +
+  geom_point(data = dcor2,
+               aes(x = get(xvar2), y = get(yvar2),
+                   fill = location_year_name),
+               color = "black", pch = 21, alpha = 0.9,
+               size = 2.5) +
+      geom_label(data = data.frame(x = 1, y = 1),
+              label = corlab2,
+              x = 0, y = 88, size = 2, color = "black", hjust = 0, fill = "white", alpha = 0.8,
+              label.size = NA)
+  
 }
 ```
 
-### Test for heteroscedasticity in correlations
+## PCR vs seroprevalence
+```{r estimate cluster correlations pcr vs seroprev}
+#------------------------------
+# PCR vs seroprev
+# all ages
+#------------------------------
+# cluster level correlation
+dcor <- clu_all %>% 
+  filter(pcr_n_tested >= min_clu_n & pgp3_n_tested >= min_clu_n) %>%
+  select(location_year_name, pcr_prev, pgp3_prev)
+cor_pcr_sp_clu  <- cor(dcor$pcr_prev, dcor$pgp3_prev, method = "pearson")
+boot_pcr_sp_clu <- boot_cor(dcor)
+cor_pcr_sp_clu_lb <- quantile(boot_pcr_sp_clu[,1],probs=0.025)
+cor_pcr_sp_clu_ub <- quantile(boot_pcr_sp_clu[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_sp_clu,cor_pcr_sp_clu_lb,cor_pcr_sp_clu_ub)
+# study level correlation
+dcor2 <- lyn_all %>% 
+  select(location_year_name,pcr_prev_median, pgp3_prev_median) %>%
+  filter(!is.na(pcr_prev_median))
+cor_pcr_sp_lyn <- cor.test(dcor2$pcr_prev_median, dcor2$pgp3_prev_median)
+corlab2 <- lyn_corlab(cor_pcr_sp_lyn$estimate, cor_pcr_sp_lyn$conf.int[1],cor_pcr_sp_lyn$conf.int[2])
+# make summary figure
+sp_all_fig <- corplot(
+  dcor,dcor2,
+  xvar = "pgp3_prev", xvar2 = "pgp3_prev_median", xlab = "Pgp3 seroprevalence (%)",xlim=100,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  ) +
+  ggtitle("All") + theme(plot.title = element_text(face = "plain", size=12))
 
-```{r}
-# approach to calculate Q based on Field, 2001
-temp_df <- clu_all %>%
-  filter(pcr_n_tested>=min_clu_n, pgp3_n_tested>=min_clu_n,
-         !is.na(pcr_prev), !is.na(pgp3_prev)) %>% 
-  group_by(location_year_name) %>% 
-  summarise(cor = cor(pgp3_prev, pcr_prev, method = "pearson",
-                      use = "complete.obs"),
-            n = n(),
-            .groups = "drop") %>% 
-  mutate(weights = n-3,
-         z = 0.5*log((1+cor)/(1-cor)))
 
-zbar <- weighted.mean(x = temp_df$z, w  = temp_df$weights)
+#------------------------------
+# PCR vs seroprev
+# 1-9y
+#------------------------------
+# cluster level correlation
+dcor <- clu_1to9 %>% 
+  filter(pcr_n_tested >= min_clu_n & pgp3_n_tested >= min_clu_n) %>%
+  select(location_year_name, pcr_prev, pgp3_prev)
+cor_pcr_sp_clu_1to9  <- cor(dcor$pcr_prev, dcor$pgp3_prev, method = "pearson")
+boot_pcr_sp_clu_1to9 <- boot_cor(dcor)
+cor_pcr_sp_clu_1to9_lb <- quantile(boot_pcr_sp_clu_1to9[,1],probs=0.025)
+cor_pcr_sp_clu_1to9_ub <- quantile(boot_pcr_sp_clu_1to9[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_sp_clu_1to9,cor_pcr_sp_clu_1to9_lb,cor_pcr_sp_clu_1to9_ub)
 
-q <- sum(temp_df$weights * (temp_df$z - zbar)^2)
+# study level correlation
+dcor2 <- lyn_all %>%
+  # drop 3 studies with no PCR measurements 6-9y
+  filter(!study_id %in% c("TAITU2018","PRET2013","TCC-Ethiopia2017")) %>%
+  select(location_year_name, pcr_prev_median, pgp3_prev_median) %>%
+  filter(!is.na(pcr_prev_median) & !is.na(pgp3_prev_median))
+cor_pcr_sp_lyn_1to9 <- cor.test(dcor2$pcr_prev_median, dcor2$pgp3_prev_median)
+corlab2 <- lyn_corlab(cor_pcr_sp_lyn_1to9$estimate, cor_pcr_sp_lyn_1to9$conf.int[1],cor_pcr_sp_lyn_1to9$conf.int[2])
 
-1-pchisq(q = q, df = nrow(temp_df)-1)
+# make summary figure
+sp_1to9_fig <- corplot(
+  dcor,dcor2,
+  xvar = "pgp3_prev", xvar2 = "pgp3_prev_median", xlab = "Pgp3 seroprevalence (%)",xlim=100,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  ) +
+  ggtitle("1 to 9 year olds") + theme(plot.title = element_text(face = "plain", size=12))
+
+
+#------------------------------
+# PCR vs seroprev
+# 1-5y 
+#------------------------------
+# cluster level correlation
+dcor <- clu_1to5 %>% 
+  filter(pcr_n_tested_1to5y >= min_clu_n & pgp3_n_tested_1to5y >= min_clu_n) %>%
+  select(location_year_name, pcr_prev_1to5y, pgp3_prev_1to5y)
+cor_pcr_sp_clu_1to5  <- cor(dcor$pcr_prev_1to5y, dcor$pgp3_prev_1to5y, method = "pearson")
+boot_pcr_sp_clu_1to5 <- boot_cor(dcor)
+cor_pcr_sp_clu_1to5_lb <- quantile(boot_pcr_sp_clu_1to5[,1],probs=0.025)
+cor_pcr_sp_clu_1to5_ub <- quantile(boot_pcr_sp_clu_1to5[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_sp_clu_1to5,cor_pcr_sp_clu_1to5_lb,cor_pcr_sp_clu_1to5_ub)
+# study level correlation
+# since there is not study-level
+# summary of 1-5y, need to compute
+# medians first
+# also need to add-in the TCC
+# studies, which have study-level
+# PCR only (but no cluster-level)
+dcor2 <- clu_1to5 %>%
+  select(study_id,location_year_name,pcr_prev, pgp3_prev) %>%
+  group_by(study_id,location_year_name) %>%
+  summarize(pcr_prev_median = median(pcr_prev),
+            pgp3_prev_median = median(pgp3_prev), 
+            .groups = "drop"
+            ) %>%
+  # add in the TCC ests
+  left_join(lyn_all %>% select(location_year_name, pcr_prev_med = pcr_prev_median), by = "location_year_name") %>%
+  mutate(pcr_prev_median = ifelse(study_id=="TCC-Ethiopia2017",pcr_prev_med, pcr_prev_median)) %>%
+  filter(!is.na(pcr_prev_median),!is.na(pgp3_prev_median))
+
+cor_pcr_sp_lyn_1to5 <- cor.test(dcor2$pcr_prev_median, dcor2$pgp3_prev_median)
+corlab2 <- lyn_corlab(cor_pcr_sp_lyn_1to5$estimate, cor_pcr_sp_lyn_1to5$conf.int[1],cor_pcr_sp_lyn_1to5$conf.int[2])
+
+# make summary figure
+sp_1to5_fig <- corplot(
+  dcor, dcor2,
+  xvar = "pgp3_prev_1to5y", xvar2 = "pgp3_prev_median", xlab = "Pgp3 seroprevalence (%)",xlim=100,
+  yvar = "pcr_prev_1to5y",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  ) +
+  ggtitle("1 to 5 year olds") + theme(plot.title = element_text(face = "plain", size=12))
+
+
+#------------------------------
+# PCR vs seroprev
+# MDA
+#------------------------------
+# cluster level correlation
+dcor <- clu_all %>% 
+  filter(pcr_n_tested >= min_clu_n & pgp3_n_tested >= min_clu_n & mda==1) %>%
+  select(location_year_name, pcr_prev, pgp3_prev)
+cor_pcr_sp_clu_mda  <- cor(dcor$pcr_prev, dcor$pgp3_prev, method = "pearson")
+boot_pcr_sp_clu_mda <- boot_cor(dcor)
+cor_pcr_sp_clu_mda_lb <- quantile(boot_pcr_sp_clu_mda[,1],probs=0.025)
+cor_pcr_sp_clu_mda_ub <- quantile(boot_pcr_sp_clu_mda[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_sp_clu_mda,cor_pcr_sp_clu_mda_lb,cor_pcr_sp_clu_mda_ub)
+# study level correlation
+dcor2 <- lyn_all %>% 
+  filter(!is.na(pcr_prev_median) & !is.na(pgp3_prev_median) & mda == 1) %>%
+  select(location_year_name, pcr_prev_median, pgp3_prev_median)
+cor_pcr_sp_lyn_mda <- cor.test(dcor2$pcr_prev_median, dcor2$pgp3_prev_median)
+corlab2 <- lyn_corlab(cor_pcr_sp_lyn_mda$estimate, cor_pcr_sp_lyn_mda$conf.int[1],cor_pcr_sp_lyn_mda$conf.int[2])
+
+# make summary figure
+sp_MDA_fig <- corplot(
+  dcor,dcor2,
+  xvar = "pgp3_prev", xvar2 = "pgp3_prev_median", xlab = "Pgp3 seroprevalence (%)",xlim=100,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  ) +
+  ggtitle("MDA in past year") + theme(plot.title = element_text(face = "plain", size=12))
+
+
+
+#------------------------------
+# PCR vs seroprev
+# no MDA
+#------------------------------
+# cluster level correlation
+dcor <- clu_all %>% 
+  filter(pcr_n_tested >= min_clu_n & pgp3_n_tested >= min_clu_n & mda==0) %>%
+  select(location_year_name, pcr_prev, pgp3_prev)
+cor_pcr_sp_clu_nomda  <- cor(dcor$pcr_prev, dcor$pgp3_prev, method = "pearson")
+boot_pcr_sp_clu_nomda <- boot_cor(dcor)
+cor_pcr_sp_clu_nomda_lb <- quantile(boot_pcr_sp_clu_nomda[,1],probs=0.025)
+cor_pcr_sp_clu_nomda_ub <- quantile(boot_pcr_sp_clu_nomda[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_sp_clu_nomda,cor_pcr_sp_clu_nomda_lb,cor_pcr_sp_clu_nomda_ub)
+
+# study level correlation
+dcor2 <- lyn_all %>% 
+  filter(!is.na(pcr_prev_median) & !is.na(pgp3_prev_median) & mda == 0) %>%
+  select(location_year_name, pcr_prev_median, pgp3_prev_median)
+cor_pcr_sp_lyn_nomda <- cor.test(dcor2$pcr_prev_median, dcor2$pgp3_prev_median)
+corlab2 <- lyn_corlab(cor_pcr_sp_lyn_nomda$estimate, cor_pcr_sp_lyn_nomda$conf.int[1],cor_pcr_sp_lyn_mda$conf.int[2])
+
+
+# make summary figure
+sp_noMDA_fig <- corplot(
+  dcor,dcor2,
+  xvar = "pgp3_prev", xvar2 = "pgp3_prev_median", xlab = "Pgp3 seroprevalence (%)",xlim=100,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  ) +
+  ggtitle("No MDA in past year") + theme(plot.title = element_text(face = "plain", size=12))
+
 ```
 
-### Calculate overall correlation
 
-```{r}
-# based on transformation
-trans_r <- (exp(2*zbar)-1)/(exp(2*zbar)+1)
 
-# based on untransformed
-untrans_r <- weighted.mean(x = temp_df$cor, w  = temp_df$n)
+## PCR vs SCR
+```{r estimate cluster correlations pcr vs scr}
+#------------------------------
+# PCR vs SCR
+# all ages
+#------------------------------
+# cluster level correlation
+dcor <- clu_all %>% 
+  filter(pcr_n_tested >= min_clu_n & pgp3_n_tested >= min_clu_n) %>%
+  select(location_year_name, pcr_prev, sir_foi) %>%
+  mutate(sir_foi = sir_foi*100)
+cor_pcr_scr_clu  <- cor(dcor$pcr_prev, dcor$sir_foi, method = "pearson")
+boot_pcr_scr_clu <- boot_cor(dcor)
+cor_pcr_scr_clu_lb <- quantile(boot_pcr_scr_clu[,1],probs=0.025)
+cor_pcr_scr_clu_ub <- quantile(boot_pcr_scr_clu[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_scr_clu,cor_pcr_scr_clu_lb,cor_pcr_scr_clu_ub)
+
+# study level correlation
+dcor2 <- lyn_all %>% 
+  select(location_year_name, pcr_prev_median, sir_foi) %>%
+  filter(!is.na(pcr_prev_median) & !is.na(sir_foi)) %>%
+  mutate(sir_foi = sir_foi*100)
+cor_pcr_scr_lyn <- cor.test(dcor2$pcr_prev_median, dcor2$sir_foi)
+corlab2 <- lyn_corlab(cor_pcr_scr_lyn$estimate, cor_pcr_scr_lyn$conf.int[1],cor_pcr_scr_lyn$conf.int[2])
+
+# make summary figure
+scr_all_fig <- corplot_scr(
+  dcor,dcor2,
+  xvar = "sir_foi", xvar2 = "sir_foi", xlab = "Seroconversion rate per 100 PY",xlim=50,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  ) +
+  ggtitle("All") + theme(plot.title = element_text(face = "plain", size=12))
+
+#------------------------------
+# PCR vs SCR
+# 1-9y
+#------------------------------
+# cluster level correlation
+dcor <- clu_1to9 %>% 
+  # drop 3 studies with no PCR measurements 6-9y
+  filter(!study_id %in% c("TAITU2018","PRET2013","TCC-Ethiopia2017")) %>%
+  filter(pcr_n_tested >= min_clu_n & pgp3_n_tested >= min_clu_n) %>%
+  select(location_year_name, pcr_prev, sir_foi) %>%
+  mutate(sir_foi = sir_foi*100)
+
+cor_pcr_scr_clu_1to9  <- cor(dcor$pcr_prev, dcor$sir_foi, method = "pearson")
+boot_pcr_scr_clu_1to9 <- boot_cor(dcor)
+cor_pcr_scr_clu_1to9_lb <- quantile(boot_pcr_scr_clu_1to9[,1],probs=0.025)
+cor_pcr_scr_clu_1to9_ub <- quantile(boot_pcr_scr_clu_1to9[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_scr_clu_1to9,cor_pcr_scr_clu_1to9_lb,cor_pcr_scr_clu_1to9_ub)
+
+# study level correlation
+dcor2 <- lyn_all %>%
+  # drop 3 studies with no PCR measurements 6-9y
+  filter(!study_id %in% c("TAITU2018","PRET2013","TCC-Ethiopia2017")) %>%
+  select(location_year_name, pcr_prev_median, sir_foi) %>%
+  filter(!is.na(pcr_prev_median) & !is.na(sir_foi)) %>%
+  mutate(sir_foi = sir_foi*100)
+cor_pcr_scr_lyn_1to9 <- cor.test(dcor2$pcr_prev_median, dcor2$sir_foi)
+corlab2 <- lyn_corlab(cor_pcr_scr_lyn_1to9$estimate, cor_pcr_scr_lyn_1to9$conf.int[1],cor_pcr_scr_lyn_1to9$conf.int[2])
+
+# make summary figure
+scr_1to9_fig <- corplot_scr(
+  dcor,dcor2,
+  xvar = "sir_foi", xvar2 = "sir_foi", xlab = "Seroconversion rate per 100 PY",xlim=50,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  ) +
+  ggtitle("1 to 9 year olds") + theme(plot.title = element_text(face = "plain", size=12))
+
+
+#------------------------------
+# PCR vs SCR
+# 1-5y 
+#------------------------------
+# cluster level correlation
+dcor <- clu_1to5 %>% 
+  filter(pcr_n_tested_1to5y >= min_clu_n & pgp3_n_tested_1to5y >= min_clu_n) %>%
+  select(location_year_name, pcr_prev_1to5y, sir_foi) %>%
+  mutate(sir_foi = sir_foi*100)
+cor_pcr_scr_clu_1to5  <- cor(dcor$pcr_prev_1to5y, dcor$sir_foi, method = "pearson")
+boot_pcr_scr_clu_1to5 <- boot_cor(dcor)
+cor_pcr_scr_clu_1to5_lb <- quantile(boot_pcr_scr_clu_1to5[,1],probs=0.025)
+cor_pcr_scr_clu_1to5_ub <- quantile(boot_pcr_scr_clu_1to5[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_scr_clu_1to9,cor_pcr_scr_clu_1to9_lb,cor_pcr_scr_clu_1to9_ub)
+
+# study level correlation
+# since there is not study-level
+# summary of 1-5y, need to compute
+# medians first
+# also need to add-in the TCC
+# studies, which have study-level
+# PCR only (but no cluster-level)
+dcor2 <- clu_1to5 %>%
+  select(study_id,location_year_name,pcr_prev) %>%
+  group_by(study_id,location_year_name) %>%
+  summarize(pcr_prev_median = median(pcr_prev), .groups = "drop") %>%
+  # add in the TCC ests for PCR and the study-level SCR for 1-5y
+  left_join(lyn_all %>% select(location_year_name, pcr_prev_med = pcr_prev_median, sir_foi_1to5),by = "location_year_name") %>%
+  mutate(pcr_prev_median = ifelse(study_id=="TCC-Ethiopia2017",pcr_prev_med, pcr_prev_median),
+         sir_foi_1to5 = sir_foi_1to5*100) %>%
+  filter(!is.na(pcr_prev_median))
+cor_pcr_scr_lyn_1to5 <- cor.test(dcor2$pcr_prev_median, dcor2$sir_foi_1to5)
+corlab2 <- lyn_corlab(cor_pcr_scr_lyn_1to5$estimate, cor_pcr_scr_lyn_1to5$conf.int[1],cor_pcr_scr_lyn_1to5$conf.int[2])
+
+# make summary figure
+scr_1to5_fig <- corplot_scr(
+  dcor,dcor2,
+  xvar = "sir_foi", xvar2 = "sir_foi_1to5", xlab = "Seroconversion rate per 100 PY",xlim=50,
+  yvar = "pcr_prev_1to5y",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  ) +
+  ggtitle("1 to 5 year olds") + theme(plot.title = element_text(face = "plain", size=12))
+
+
+
+#------------------------------
+# PCR vs SCR
+# MDA
+#------------------------------
+# cluster level correlation
+dcor <- clu_all %>% 
+  filter(pcr_n_tested >= min_clu_n & pgp3_n_tested >= min_clu_n & mda==1) %>%
+  select(location_year_name, pcr_prev, sir_foi) %>%
+  mutate(sir_foi = sir_foi*100)
+cor_pcr_scr_clu_mda  <- cor(dcor$pcr_prev, dcor$sir_foi, method = "pearson")
+boot_pcr_scr_clu_mda <- boot_cor(dcor)
+cor_pcr_scr_clu_mda_lb <- quantile(boot_pcr_scr_clu_mda[,1],probs=0.025)
+cor_pcr_scr_clu_mda_ub <- quantile(boot_pcr_scr_clu_mda[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_scr_clu_mda,cor_pcr_scr_clu_mda_lb,cor_pcr_scr_clu_mda_ub)
+
+# study level correlation
+dcor2 <- lyn_all %>% 
+  filter(!is.na(pcr_prev_median) & !is.na(sir_foi) & mda == 1) %>%
+  select(location_year_name, pcr_prev_median, sir_foi) %>%
+  mutate(sir_foi = sir_foi*100)
+cor_pcr_scr_lyn_mda <- cor.test(dcor2$pcr_prev_median, dcor2$sir_foi)
+corlab2 <- lyn_corlab(cor_pcr_scr_lyn_mda$estimate, cor_pcr_scr_lyn_mda$conf.int[1],cor_pcr_scr_lyn_mda$conf.int[2])
+
+# make summary figure
+scr_MDA_fig <- corplot_scr(
+  dcor,dcor2,
+  xvar = "sir_foi", xvar2 = "sir_foi", xlab = "Seroconversion rate per 100 PY",xlim=50,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  ) +
+  ggtitle("MDA in past year") + theme(plot.title = element_text(face = "plain", size=12))
+
+
+
+#------------------------------
+# PCR vs SCR
+# no MDA
+#------------------------------
+dcor <- clu_all %>% 
+  filter(pcr_n_tested >= min_clu_n & pgp3_n_tested >= min_clu_n & mda==0) %>%
+  select(location_year_name, pcr_prev, sir_foi) %>%
+  mutate(sir_foi = sir_foi*100)
+cor_pcr_scr_clu_nomda  <- cor(dcor$pcr_prev, dcor$sir_foi, method = "pearson")
+boot_pcr_scr_clu_nomda <- boot_cor(dcor)
+cor_pcr_scr_clu_nomda_lb <- quantile(boot_pcr_scr_clu_nomda[,1],probs=0.025)
+cor_pcr_scr_clu_nomda_ub <- quantile(boot_pcr_scr_clu_nomda[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_scr_clu_nomda,cor_pcr_scr_clu_nomda_lb,cor_pcr_scr_clu_nomda_ub)
+
+# study level correlation
+dcor2 <- lyn_all %>% 
+  filter(!is.na(pcr_prev_median) & !is.na(sir_foi) & mda == 0) %>%
+  select(location_year_name, pcr_prev_median, sir_foi) %>%
+  mutate(sir_foi = sir_foi*100)
+cor_pcr_scr_lyn_nomda <- cor.test(dcor2$pcr_prev_median, dcor2$sir_foi)
+corlab2 <- lyn_corlab(cor_pcr_scr_lyn_nomda$estimate, cor_pcr_scr_lyn_nomda$conf.int[1],cor_pcr_scr_lyn_nomda$conf.int[2])
+
+# make summary figure
+scr_noMDA_fig <- corplot_scr(
+  dcor,dcor2,
+  xvar = "sir_foi", xvar2 = "sir_foi", xlab = "Seroconversion rate per 100 PY",xlim=50,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  ) +
+  ggtitle("No MDA in past year") + theme(plot.title = element_text(face = "plain", size=12))
+
+
 ```
 
-## Figures 4, 5 and S4. Correlation between indicators
+## PCR vs TF prevalence
+```{r estimate cluster correlations pcr vs tf}
+#------------------------------
+# PCR vs TF
+# all ages
+#------------------------------
+# cluster level correlation
+dcor <- clu_all %>% 
+  filter(pcr_n_tested >= min_clu_n & tf_n_tested >= min_clu_n) %>%
+  select(location_year_name, pcr_prev, tf_prev)
+cor_pcr_tf_clu  <- cor(dcor$pcr_prev, dcor$tf_prev, method = "pearson")
+boot_pcr_tf_clu <- boot_cor(dcor)
+cor_pcr_tf_clu_lb <- quantile(boot_pcr_tf_clu[,1],probs=0.025)
+cor_pcr_tf_clu_ub <- quantile(boot_pcr_tf_clu[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_tf_clu,cor_pcr_tf_clu_lb,cor_pcr_tf_clu_ub)
 
-```{r estimate correlations and bootstrap 95pct CIs, fig.width = 8.5, fig.height = 8}
-sp_all_fig <- get_trach_compare_fig(df = clu_all,
-                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE) +
-  ggtitle("All") + theme(plot.title = element_text(face = "bold"))
+# study level correlation
+dcor2 <- lyn_all %>% 
+      select(location_year_name,pcr_prev_median, tf_prev_median) %>%
+      filter(!is.na(pcr_prev_median) & !is.na(tf_prev_median))
+cor_pcr_tf_lyn <- cor.test(dcor2$pcr_prev_median, dcor2$tf_prev_median)
+corlab2 <- lyn_corlab(cor_pcr_tf_lyn$estimate, cor_pcr_tf_lyn$conf.int[1],cor_pcr_tf_lyn$conf.int[2])
 
-tf_all_fig <- get_trach_compare_fig(df = clu_all,
-                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE)
+# make summary figure
+tf_all_fig <- corplot(
+  dcor,dcor2,
+  xvar = "tf_prev", xvar2 = "tf_prev_median", xlab = "TF prevalence (%)",xlim=100,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  )
 
-sp_all_fig_mda <- get_trach_compare_fig(df = clu_all,
-                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE) +
-  ggtitle("All") + theme(plot.title = element_text(face = "bold"))
 
-tf_all_fig_mda <- get_trach_compare_fig(df = clu_all,
-                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE)
+#------------------------------
+# PCR vs TF
+# 1-9y
+#------------------------------
+# cluster level correlation
+dcor <- clu_1to9 %>% 
+  # drop 3 studies with no PCR measurements 6-9y
+  filter(!study_id %in% c("TAITU2018","PRET2013","TCC-Ethiopia2017")) %>%
+  filter(pcr_n_tested >= min_clu_n & tf_n_tested >= min_clu_n) %>%
+  select(location_year_name, pcr_prev, tf_prev)
+cor_pcr_tf_clu_1to9  <- cor(dcor$pcr_prev, dcor$tf_prev, method = "pearson")
+boot_pcr_tf_clu_1to9 <- boot_cor(dcor)
+cor_pcr_tf_clu_1to9_lb <- quantile(boot_pcr_tf_clu_1to9[,1],probs=0.025)
+cor_pcr_tf_clu_1to9_ub <- quantile(boot_pcr_tf_clu_1to9[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_tf_clu_1to9,cor_pcr_tf_clu_1to9_lb,cor_pcr_tf_clu_1to9_ub)
 
-sir_all_fig <- get_trach_compare_fig(df = clu_all %>% mutate(sir_foi=sir_foi*100),
-                      x_var = "sir_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY",
-                      x_max = 50, # note that some are cutoff! need to list # of excluded outliers
-                      y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE) +
-  ggtitle("All") + theme(plot.title = element_text(face = "bold"))
+# study level correlation
+dcor2 <- lyn_all %>%
+  # drop 3 studies with no PCR measurements 6-9y
+  filter(!study_id %in% c("TAITU2018","PRET2013","TCC-Ethiopia2017")) %>%
+  select(location_year_name, pcr_prev_median, tf_prev_median) %>%
+  filter(!is.na(pcr_prev_median) & !is.na(tf_prev_median))
+cor_pcr_tf_lyn_1to9 <- cor.test(dcor2$pcr_prev_median, dcor2$tf_prev_median)
+corlab2 <- lyn_corlab(cor_pcr_tf_lyn_1to9$estimate, cor_pcr_tf_lyn_1to9$conf.int[1],cor_pcr_tf_lyn_1to9$conf.int[2])
 
-sis_all_fig <- get_trach_compare_fig(df = clu_all %>% mutate(sis_foi=sis_foi*100),
-                      x_var = "sis_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY\n(seroreversion rate = 6.6 per 100 PY)",
-                      x_max = 100, # note that some are cutoff! need to list # of excluded outliers
-                      y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE) 
+# make summary figure
+tf_1to9_fig <- corplot(
+  dcor,dcor2,
+  xvar = "tf_prev", xvar2 = "tf_prev_median", xlab = "TF prevalence (%)",xlim=100,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  )
 
-sp_1to9_fig <- get_trach_compare_fig(df = clu_all %>% filter(location_year_name %ni% c("Wag Hemra, Ethiopia (TAITU) 2018",
-                                                                                        "Matameye, Niger 2013")),
-                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE, incl_cc = FALSE) +
-  ggtitle("1-9-year-olds") + theme(plot.title = element_text(face = "bold"))
 
-sp_1to5_fig <- get_trach_compare_fig(df = clu_1to5,
-                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE) +
-  ggtitle("1-5-year-olds") + theme(plot.title = element_text(face = "bold"))
+#------------------------------
+# PCR vs TF
+# 1-5y 
+#------------------------------
+# cluster level correlation
+dcor <- clu_1to5 %>% 
+  filter(pcr_n_tested_1to5y >= min_clu_n & tf_n_tested_1to5y >= min_clu_n) %>%
+  select(location_year_name, pcr_prev_1to5y, tf_prev_1to5y)
+cor_pcr_tf_clu_1to5  <- cor(dcor$pcr_prev_1to5y, dcor$tf_prev_1to5y, method = "pearson")
+boot_pcr_tf_clu_1to5 <- boot_cor(dcor)
+cor_pcr_tf_clu_1to5_lb <- quantile(boot_pcr_tf_clu_1to5[,1],probs=0.025)
+cor_pcr_tf_clu_1to5_ub <- quantile(boot_pcr_tf_clu_1to5[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_tf_clu_1to5,cor_pcr_tf_clu_1to5_lb,cor_pcr_tf_clu_1to5_ub)
 
-sp_MDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 1),
-                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE) +
-  ggtitle("MDA in past year") + theme(plot.title = element_text(face = "bold"))
+# study level correlation
+# since there is not study-level
+# summary of 1-5y, need to compute
+# medians first and add in the TCC ests after
+dcor2 <- clu_1to5 %>%
+  select(study_id,location_year_name,pcr_prev_1to5y, tf_prev_1to5y) %>%
+  group_by(study_id, location_year_name) %>%
+  summarize(pcr_prev_median = median(pcr_prev_1to5y),
+            tf_prev_median = median(tf_prev_1to5y),
+            .groups = "drop") %>%
+  # add in the study-level TCC ests (although we actually do not have TF prev for 1-5y in these studies so dropped)
+  left_join(lyn_all %>% select(location_year_name, pcr_prev_med = pcr_prev_median), by = "location_year_name") %>%
+  mutate(pcr_prev_median = ifelse(study_id=="TCC-Ethiopia2017",pcr_prev_med, pcr_prev_median)) %>%
+  filter(!is.na(pcr_prev_median) & !is.na(tf_prev_median))
 
-sp_noMDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 0),
-                      x_var = "pgp3_prev", x_n = "pgp3_n_tested", x_lab = "Pgp3 seroprevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE) +
-  ggtitle("No MDA in past year") + theme(plot.title = element_text(face = "bold"))
+cor_pcr_tf_lyn_1to5 <- cor.test(dcor2$pcr_prev_median, dcor2$tf_prev_median)
+corlab2 <- lyn_corlab(cor_pcr_tf_lyn_1to5$estimate, cor_pcr_tf_lyn_1to5$conf.int[1],cor_pcr_tf_lyn_1to5$conf.int[2])
 
-tf_MDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 1),
-                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE)
+# make summary figure
+tf_1to5_fig <- corplot(
+  dcor,dcor2,
+  xvar = "tf_prev_1to5y", xvar2 = "tf_prev_median", xlab = "TF prevalence (%)",xlim=100,
+  yvar = "pcr_prev_1to5y",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  )
 
-tf_noMDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 0),
-                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE)
+#------------------------------
+# PCR vs TF
+# MDA
+#------------------------------
+# cluster level correlation
+dcor <- clu_all %>% 
+  filter(pcr_n_tested >= min_clu_n & tf_n_tested >= min_clu_n & mda==1) %>%
+  select(location_year_name, pcr_prev, tf_prev)
+cor_pcr_tf_clu_mda  <- cor(dcor$pcr_prev, dcor$tf_prev, method = "pearson")
+boot_pcr_tf_clu_mda <- boot_cor(dcor)
+cor_pcr_tf_clu_mda_lb <- quantile(boot_pcr_tf_clu_mda[,1],probs=0.025)
+cor_pcr_tf_clu_mda_ub <- quantile(boot_pcr_tf_clu_mda[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_tf_clu_mda,cor_pcr_tf_clu_mda_lb,cor_pcr_tf_clu_mda_ub)
 
-tf_1to9_fig <- get_trach_compare_fig(df = clu_all %>% filter(location_year_name %ni% c("Wag Hemra, Ethiopia (TAITU) 2018",
-                                                                                        "Matameye, Niger 2013")),
-                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE, incl_cc = FALSE)
+# study level correlation
+dcor2 <- lyn_all %>% 
+  filter(!is.na(pcr_prev_median) & !is.na(tf_prev_median) & mda == 1) %>%
+  select(location_year_name, pcr_prev_median, tf_prev_median)
+cor_pcr_tf_lyn_mda <- cor.test(dcor2$pcr_prev_median, dcor2$tf_prev_median)
+corlab2 <- lyn_corlab(cor_pcr_tf_lyn_mda$estimate, cor_pcr_tf_lyn_mda$conf.int[1],cor_pcr_tf_lyn_mda$conf.int[2])
 
-tf_1to5_fig <- get_trach_compare_fig(df = clu_1to5,
-                      x_var = "tf_prev", x_n = "tf_n_tested", x_lab = "TF prevalence (%)",
-                      x_max = 100, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_xy = TRUE)
+# make summary figure
+tf_MDA_fig <- corplot(
+  dcor,dcor2,
+  xvar = "tf_prev", xvar2 = "tf_prev_median", xlab = "TF prevalence (%)",xlim=100,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  )
 
-sir_1to9_fig <- get_trach_compare_fig(df = clu_all %>% filter(location_year_name %ni% c("Wag Hemra, Ethiopia (TAITU) 2018",
-                                                                                        "Matameye, Niger 2013")) %>% mutate(sir_foi=sir_foi*100),
-                      x_var = "sir_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY",
-                      x_max = 50, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE, incl_cc = FALSE) +
-  ggtitle("1-9-year-olds") + theme(plot.title = element_text(face = "bold"))
 
-sir_1to5_fig <- get_trach_compare_fig(df = clu_1to5 %>% mutate(sir_foi=sir_foi*100),
-                      x_var = "sir_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY",
-                      x_max = 50, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE) +
-  ggtitle("1-5-year-olds") + theme(plot.title = element_text(face = "bold"))
+#------------------------------
+# PCR vs TF
+# no MDA
+#------------------------------
+# cluster level correlation
+dcor <- clu_all %>% 
+  filter(pcr_n_tested >= min_clu_n & tf_n_tested >= min_clu_n & mda==0) %>%
+  select(location_year_name, pcr_prev, tf_prev)
+cor_pcr_tf_clu_nomda  <- cor(dcor$pcr_prev, dcor$tf_prev, method = "pearson")
+boot_pcr_tf_clu_nomda <- boot_cor(dcor)
+cor_pcr_tf_clu_nomda_lb <- quantile(boot_pcr_tf_clu_nomda[,1],probs=0.025)
+cor_pcr_tf_clu_nomda_ub <- quantile(boot_pcr_tf_clu_nomda[,1],probs=0.975)
+corlab <- cl_corlab(cor_pcr_tf_clu_nomda,cor_pcr_tf_clu_nomda_lb,cor_pcr_tf_clu_nomda_ub)
 
-sir_MDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 1) %>% mutate(sir_foi=sir_foi*100),
-                      x_var = "sir_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY",
-                      x_max = 50, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE) +
-  ggtitle("MDA in past year") + theme(plot.title = element_text(face = "bold"))
+# study level correlation
+dcor2 <- lyn_all %>% 
+  filter(!is.na(pcr_prev_median) & !is.na(tf_prev_median) & mda == 0) %>%
+  select(location_year_name, pcr_prev_median, tf_prev_median)
+cor_pcr_tf_lyn_nomda <- cor.test(dcor2$pcr_prev_median, dcor2$tf_prev_median)
+corlab2 <- lyn_corlab(cor_pcr_tf_lyn_nomda$estimate, cor_pcr_tf_lyn_nomda$conf.int[1],cor_pcr_tf_lyn_nomda$conf.int[2])
 
-sir_noMDA_fig <- get_trach_compare_fig(df = clu_all %>% filter(mda == 0)  %>% mutate(sir_foi=sir_foi*100),
-                      x_var = "sir_foi", x_n = "pgp3_n_tested", x_lab = "Seroconversion rate per 100 PY",
-                      x_max = 50, y_var = "pcr_prev", y_n = "pcr_n_tested", y_lab = "PCR prevalence (%)",
-                      incl_pop_pts = TRUE) +
-  ggtitle("No MDA in past year") + theme(plot.title = element_text(face = "bold"))
+# make summary figure
+tf_noMDA_fig <- corplot(
+  dcor,dcor2,
+  xvar = "tf_prev", xvar2 = "tf_prev_median", xlab = "TF prevalence (%)",xlim=100,
+  yvar = "pcr_prev",  yvar2 = "pcr_prev_median",  ylab = "PCR prevalence (%)",
+  corlab,corlab2
+  )
+
+
 ```
+
 
 ### Create legend
 
@@ -381,37 +858,9 @@ fig4_lyn <- lyn_all %>%
   filter(!is.na(pcr_prev_median)) %>%
   pull(location_year_name)
 
-# lyn_left <- c("Alefa, Ethiopia 2017", "Kongwa, Tanzania 2018", "Kongwa, Tanzania 2013",
-#               "Wag Hemra, Ethiopia (WUHA) 2019", "Wag Hemra, Ethiopia (TAITU) 2018")
-# lyn_right <- c("Andabet, Ethiopia 2017", "Dera, Ethiopia 2017", "Woreta town, Ethiopia 2017",
-#                "Wag Hemra, Ethiopia (WUHA) 2016", "Matameye, Niger (PRET) 2013",
-#                "Chikwawa, Malawi 2014", "Mchinji, Malawi 2014")
-# title_left <- "No MDA in the past year"
-# title_right <- "MDA in the past year"
-title_right <- ""
-# rw <- c(1,1.5)
-  
-# LEFT
-# my_ggp_left <- ggplot(data = lyn_all %>%
-#                    filter(location_year_name %in% lyn_left)) +
-#   geom_point(aes(x = pgp3_prev_median, y = sir_foi_median, fill = location_year_name),
-#              pch = 21, color = "black", size = 2.5) +
-#   scale_fill_manual(values = location_year_name_colors[lyn_left],
-#                     labels = location_year_name_short %>% filter(location_year_name %in% lyn_left) %>% deframe()) +
-#   theme_minimal() +
-#   labs(fill = title_left) +
-#   theme(legend.title = element_text(face = "bold", size = 9),
-#         legend.key.height = unit(0.5, "cm"),
-#         legend.key.width = unit(0.6, "cm"),
-#         legend.text = element_text(size = 7),
-#         legend.title.align=0.5) +
-#   guides(fill = guide_legend(nrow = 3))
-# 
-# step1 <- ggplot_gtable(ggplot_build(my_ggp_left))
-# step2 <- which(sapply(step1$grobs, function(x) x$name) == "guide-box")
-# fig4_step3_left <- step3 <- step1$grobs[[step2]]
 
-# RIGHT
+title_right <- ""
+
 my_ggp_right <- ggplot(data = lyn_all %>%
                      filter(location_year_name %in% fig4_lyn)) +
   geom_point(aes(x = pgp3_prev_median, y = sir_foi_median, fill = location_year_name),
@@ -425,26 +874,21 @@ my_ggp_right <- ggplot(data = lyn_all %>%
         legend.key.width = unit(0.6, "cm"),
         legend.text = element_text(size = 7),
         legend.title.align=0.5) +
-  guides(fill = guide_legend(nrow = 2))
+  guides(fill = guide_legend(nrow = 3))
 
 step1 <- ggplot_gtable(ggplot_build(my_ggp_right))
 step2 <- which(sapply(step1$grobs, function(x) x$name) == "guide-box")
 fig4_step3 <- step3 <- step1$grobs[[step2]]
 
-# TOGETHER
-#fig4_step3 <- plot_grid(fig4_step3_left, fig4_step3_right, nrow = 1, rel_widths = rw)
-
 ```
 
-### Combine figures
-
-Figure 4
+### Figure 4
 
 ```{r fig4, fig.width = 8.5, fig.height = 5.4}
-fig4 <- plot_grid(plot_grid(sp_all_fig_mda, sp_noMDA_fig, sp_MDA_fig, nrow = 1),
-                  plot_grid(tf_all_fig_mda, tf_noMDA_fig, tf_MDA_fig, nrow = 1),
+fig4 <- plot_grid(plot_grid(sp_all_fig, sp_noMDA_fig, sp_MDA_fig, nrow = 1),
+                  plot_grid(tf_all_fig, tf_noMDA_fig, tf_MDA_fig, nrow = 1),
                   fig4_step3,
-                  ncol = 1, rel_heights = c(1, 0.9, 0.2), labels = c('a', 'b', ""))
+                  ncol = 1, rel_heights = c(1, 0.9, 0.3), labels = c('a', 'b', ""))
 
 fig4
 
@@ -452,17 +896,17 @@ if(save_figs){
   ggsave(filename = here("output", "fig4_sero_tf_mda_pearson_wt.pdf"),
          fig4,
          device = cairo_pdf,
-         width = 8.5, height = 5.4, units = "in")
+         width = 180, height = 150, units = "mm")
 }
 ```
 
-Figure 5
+### Figure 5
 
 ```{r fig5, fig.width = 8.5, fig.height = 5.4}
 fig5 <- plot_grid(plot_grid(sp_all_fig, sp_1to9_fig, sp_1to5_fig, nrow = 1),
                   plot_grid(tf_all_fig, tf_1to9_fig, tf_1to5_fig, nrow = 1),
                   fig4_step3,
-                  ncol = 1, rel_heights = c(1, 0.9, 0.2), labels = c('a', 'b', ""))
+                  ncol = 1, rel_heights = c(1, 0.9, 0.3), labels = c('a', 'b', ""))
 
 fig5
 
@@ -470,25 +914,25 @@ if(save_figs){
   ggsave(filename = here("output", "fig5_sero_tf_age_pearson_wt.pdf"),
          fig5,
          device = cairo_pdf,
-         width = 8.5, height = 5.4, units = "in")
+         width = 180, height = 150, units = "mm")
 }
 ```
 
-Figure S4
+### Figure S4
 
 ```{r figS4, fig.width = 8.5, fig.height = 5.4}
-figS4 <- plot_grid(plot_grid(sir_all_fig, sir_noMDA_fig, sir_MDA_fig, nrow = 1),
-                  plot_grid(sir_all_fig, sir_1to9_fig, sir_1to5_fig, nrow = 1),
+figS4 <- plot_grid(plot_grid(scr_all_fig, scr_noMDA_fig, scr_MDA_fig, nrow = 1),
+                  plot_grid(scr_all_fig, scr_1to9_fig, scr_1to5_fig, nrow = 1),
                   fig4_step3,
-                  ncol = 1, rel_heights = c(1, 0.93, 0.2), labels = c('a', 'b', ""))
+                  ncol = 1, rel_heights = c(1, 1, 0.4), labels = c('a', 'b', ""))
 
 figS4
 
 if(save_figs){
-  ggsave(filename = here("output", "figS4_sir_pcr_pearson_wt.pdf"),
+  ggsave(filename = here("output", "figS4_scr_pcr_pearson_wt.pdf"),
          figS4,
          device = cairo_pdf,
-         width = 8.5, height = 5.7, units = "in")
+         width = 180, height = 150, units = "mm")
  }
 ```
 
