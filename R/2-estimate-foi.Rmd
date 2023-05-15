@@ -82,7 +82,8 @@ This summary is used because for the semi-parametric estimates of seroconversion
 ```{r summarize by location year}
 lyn_all_summary <- clu_df %>% 
   group_by(study_id, year, location_year_name) %>% 
-  summarise(pcr_n_tested = sum(pcr_n_tested, na.rm = TRUE),
+  summarise(mda = max(mda),
+            pcr_n_tested = sum(pcr_n_tested, na.rm = TRUE),
             tf_n_tested = sum(tf_n_tested, na.rm = TRUE),
             ti_n_tested = sum(ti_n_tested, na.rm = TRUE),
             pgp3_n_tested = sum(pgp3_n_tested, na.rm = TRUE),
