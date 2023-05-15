@@ -98,7 +98,7 @@ age_hist
 if(save_figs){
   ggsave(filename = here::here("output", "figS2_age_dist.pdf"),
          plot = age_hist,
-         device = cairo_pdf,
+         device = pdf,
          width = 8.5, height = 6.5)
 }
 ```
@@ -142,7 +142,7 @@ clu_n
 if(save_figs){
   ggsave(filename = here::here("output", "figS1_clu_sample_sizes.pdf"),
          plot = clu_n,
-         device = cairo_pdf,
+         device = pdf,
          width = 8.5, height = 6.5)
 }
 ```
@@ -290,7 +290,7 @@ temp_lyn_order <- c(
   "Dosso, Niger (MORDOR) 2018"
 )
   
-  # 1) SP figures
+  # 1) Seroprevalence panel
   sp_fig <- clu_all_summary_foi %>%
     filter(location_year_name %in% lyn_recent) %>%
     filter(pgp3_n_tested >= min_clu_n) %>% 
@@ -299,9 +299,9 @@ temp_lyn_order <- c(
     # geom_jitter(aes(x = location_year_name, y = pgp3_prev, color = location_year_name),
     #             width=0.1,alpha = 0.8, size = 1.2) +
     geom_point(aes(x = location_year_name, y = pgp3_prev, color = location_year_name),
-               shape = "|", alpha = 0.8, size = 4) +
+               shape = "|", alpha = 0.8, size = 3) +
     geom_boxplot(aes(x = location_year_name, y = pgp3_prev),
-                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.8) +
+                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.5) +
     scale_x_discrete(labels = ind_df %>%
                        left_join(lyn_all_summary_foi %>% dplyr::select(location_year_name, location_year_name_nm), by = "location_year_name") %>% 
                        distinct(location_year_name, location_year_name_nm) %>%
@@ -312,89 +312,65 @@ temp_lyn_order <- c(
     coord_flip() +
     temp_theme +
     theme(legend.position = "none",
-          axis.text.x = element_text(size = 12),
-          axis.title.x = element_text(size = 16),
+          axis.text.x = element_text(size = 8),
+          axis.title.x = element_text(size = 10),
           axis.text.y = element_text(color = rev(location_year_name_colors[temp_lyn_order]),
-                                     size = 12, hjust = 0.5))
+                                     size = 8, hjust = 0.5))
   
-  # 2) FOI figures
-  foi_fig <- clu_all_summary_foi %>%
-    filter(location_year_name %in% lyn_recent) %>%
-    filter(pgp3_n_tested >= min_clu_n) %>% 
-    mutate(location_year_name = factor(location_year_name, levels = rev(temp_lyn_order))) %>% 
-    ggplot() +
-    geom_point(aes(x = location_year_name, y = sir_foi, color = location_year_name),
-               shape = "|", alpha = 0.8, size = 4) +
-    geom_boxplot(aes(x = location_year_name, y = sir_foi),
-                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.8) +
-    scale_x_discrete(labels = ind_df %>%
-                       left_join(lyn_all_summary_foi %>% dplyr::select(location_year_name, location_year_name_nm), by = "location_year_name") %>% 
-                       distinct(location_year_name, location_year_name_nm) %>%
-                       tibble::deframe(),
-                     limits = rev(temp_lyn_order)) +
-    scale_y_continuous(breaks = seq(0, 1, by = 0.2), limits = c(0,1)) +
-    labs(x = NULL, y = "Seroconversion rate per person-year") +
-    coord_flip() +
-    temp_theme +
-    theme(legend.position = "none",
-          axis.text.x = element_text(size = 12),
-          axis.title.x = element_text(size = 16),
-          axis.text.y = element_blank())
   
-  # 3) PCR figures
+  # 2) PCR panel
   pcr_fig <- clu_all_summary_foi %>%
     filter(location_year_name %in% lyn_recent) %>% 
     filter(pcr_n_tested >= min_clu_n) %>% 
     mutate(location_year_name = factor(location_year_name, levels = rev(temp_lyn_order))) %>%  
     ggplot() +
     geom_point(aes(x = location_year_name, y = pcr_prev, color = location_year_name),
-               shape = "|", alpha = 0.8, size = 4) +
+               shape = "|", alpha = 0.8, size = 3) +
     # geom_jitter(aes(x = location_year_name, y = pcr_prev, color = location_year_name),
     #             width=0.1,alpha = 0.8, size = 1.2) +
     geom_boxplot(aes(x = location_year_name, y = pcr_prev),
-                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.8) +
+                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.5) +
     # add manual points for Carter Center
     geom_point(data = cc_pcr_manual %>% filter(location_year_name %in% temp_lyn_order),
                aes(x = location_year_name, y = prev, fill = location_year_name),
-               alpha = 0.7, pch = 21, color = "black", size = 4) +
+               alpha = 0.7, pch = 21, color = "black", size = 3) +
     # add NA labels for studies without PCR measurements
-    annotate("text", x= c(1,2,5),y=1, label="NA", size=3.5) +
+    annotate("text", x= c(1,2,5),y=1, label="NA", size=2.5) +
     scale_x_discrete(limits = rev(temp_lyn_order)) +
     scale_y_continuous(breaks = seq(0, 100, by = 20), limits = c(0,100)) +
     labs(x = NULL, y = "PCR prevalence (%)") +
     coord_flip() +
     temp_theme +
     theme(legend.position = "none",
-          axis.text.x = element_text(size = 12),
-          axis.title.x = element_text(size = 16),
+          axis.text.x = element_text(size = 8),
+          axis.title.x = element_text(size = 10),
           axis.text.y = element_blank())
   
-  # 4) TF figures
+  # 3) TF panel
   tf_fig <- clu_all_summary_foi %>%
     filter(tf_n_tested >= min_clu_n | study_id == "TCC-Ethiopia2017") %>% 
     filter(location_year_name %in% lyn_recent) %>% 
     mutate(location_year_name = factor(location_year_name, levels = rev(temp_lyn_order))) %>%  
     ggplot() +
     geom_point(aes(x = location_year_name, y = tf_prev, color = location_year_name),
-               shape = "|", alpha = 0.7, size = 4) +
+               shape = "|", alpha = 0.7, size = 3) +
     # geom_jitter(aes(x = location_year_name, y = tf_prev, color = location_year_name),
     #             width=0.1,alpha = 0.8, size = 1.2) +
     geom_boxplot(aes(x = location_year_name, y = tf_prev),
-                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.8) +
+                 color = "black", width = 0.3, outlier.shape = NA, fill = NA, lwd = 0.5) +
     # add NA labels for studies without TF measurements (MORDOR2015)
-    annotate("text", x= c(1),y=1, label="NA", size=3.5) +
+    annotate("text", x= c(1),y=1, label="NA", size=2.5) +
     scale_x_discrete(limits = rev(temp_lyn_order)) +
     scale_y_continuous(breaks = seq(0, 100, by = 20), limits = c(0,100)) +
     labs(x = NULL, y = "TF prevalence (%)") +
     coord_flip() +
     temp_theme +
     theme(legend.position = "none",
-          axis.text.x = element_text(size = 12),
-          axis.title.x = element_text(size = 16),
+          axis.text.x = element_text(size = 8),
+          axis.title.x = element_text(size = 10),
           axis.text.y = element_blank())
   
   ret <- plot_grid(sp_fig,
-                   #foi_fig,
                    pcr_fig,
                    tf_fig,
                    nrow = 1,
@@ -414,7 +390,7 @@ age_sero_combined_fig_wsub <- add_sub(
   label = "* Estimates collected in population based survey \n† Serology, PCR, and TF measured among 1-5 year olds only\n‡ PCR prevalence measured only at the district-level among 1-5 year olds",
   hjust = 0,
   x = 0.02,
-  size = 12
+  size = 8
 )
 
 ggdraw(age_sero_combined_fig_wsub)
@@ -423,7 +399,7 @@ if(save_figs){
   ggsave(filename = here::here("output", "fig1_trach_summary.pdf"),
          plot = ggdraw(age_sero_combined_fig_wsub),
          device = cairo_pdf,
-         width = 11, height = 12, units = "in")
+         width = 180, height = 196, units = "mm")
 }
 ```
 

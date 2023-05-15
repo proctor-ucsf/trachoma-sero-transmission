@@ -236,7 +236,7 @@ get_age_sero_curve <- function(pcr_min, pcr_max){
   temp_df %>% 
     filter(age_years>0) %>% 
       ggplot(aes(x = age_years, y = preds, color = location_year_name)) +
-      geom_line(lwd = 0.8) +
+      geom_line(lwd = 0.7) +
       #geom_line(lwd = 0.8, aes(lty = as.factor(mk_test_reject))) +
       # geom_point(data = age_sero_results  %>%
       #                   filter(age_years>0) %>%
@@ -256,8 +256,9 @@ get_age_sero_curve <- function(pcr_min, pcr_max){
       coord_cartesian(ylim = c(0,60)) +
       temp_theme +
       theme(legend.position = c(0.2, 0.9), legend.key.height = unit(0.5, "cm"),
-            axis.title = element_text(size = 10),
-            axis.text = element_text(size = 9)) +
+            axis.title = element_text(size = 8),
+            axis.text = element_text(size = 8)
+            ) +
       guides(linetype = guide_legend(ncol = 1))
 }
 
@@ -312,7 +313,7 @@ sir_foi_fig <- clu_all %>%
           axis.text.x = element_text(size = 7),
           axis.title.x = element_text(size = 8),
           axis.text.y = element_text(color = rev(location_year_name_colors[temp_lyn_order]),
-                                     size = 8, hjust = 0.5))
+                                     size = 7, hjust = 0.5))
 
 ## foi reversible -----
 sis_foi_fig <- clu_all %>%
@@ -374,7 +375,7 @@ pcr_fig <- clu_all %>%
 
 ```{r, fig.width = 8.5, fig.height = 3.7}
 # combine and save figs
-combined_fig <- plot_grid(age_sero_fig, sir_foi_fig, pcr_fig, nrow = 1, rel_widths = c(1.2,1,0.55))
+combined_fig <- plot_grid(age_sero_fig, sir_foi_fig, pcr_fig, nrow = 1, rel_widths = c(1.1,1,0.55))
 
 combined_fig
 
@@ -390,8 +391,8 @@ combined_fig
 if(save_figs) {
   ggsave(filename = here("output", "fig2_age_sero_curves.pdf"),
          combined_fig,
-         device = cairo_pdf,
-         width = 8.5, height = 3.7, units = "in")
+         device = pdf,
+         width = 180, height = 80, units = "mm")
 }
 
 ```

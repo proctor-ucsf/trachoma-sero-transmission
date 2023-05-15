@@ -895,7 +895,7 @@ fig4
 if(save_figs){
   ggsave(filename = here("output", "fig4_sero_tf_mda_pearson_wt.pdf"),
          fig4,
-         device = cairo_pdf,
+         device = pdf,
          width = 180, height = 150, units = "mm")
 }
 ```
@@ -913,7 +913,7 @@ fig5
 if(save_figs){
   ggsave(filename = here("output", "fig5_sero_tf_age_pearson_wt.pdf"),
          fig5,
-         device = cairo_pdf,
+         device = pdf,
          width = 180, height = 150, units = "mm")
 }
 ```
@@ -931,7 +931,7 @@ figS4
 if(save_figs){
   ggsave(filename = here("output", "figS4_scr_pcr_pearson_wt.pdf"),
          figS4,
-         device = cairo_pdf,
+         device = pdf,
          width = 180, height = 150, units = "mm")
  }
 ```

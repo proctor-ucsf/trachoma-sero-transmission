@@ -228,7 +228,8 @@ get_sens_spec_fig <- function(df, lyn_list, dvar_input, cutoff_var, cutoff_lab){
           legend.position = "none",
           axis.title.x = element_text(size = 10),
           axis.text = element_text(size = 8),
-          panel.grid.minor = element_blank())
+          panel.grid.minor = element_blank(),
+          plot.margin = margin(t=16.5,r=5.5,b=5.5,l=20,unit="pt"))
   
 }
 ```
@@ -238,29 +239,25 @@ sp_fig <- get_sens_spec_fig(df = sens_spec_all,
                             lyn_list = "lyn_all_list",
                             dvar_input = "pcr_prev",
                             cutoff_var = "pgp3_prev",
-                            cutoff_lab = "Seroprevalence threshold (%)") +
-  theme(plot.margin = margin(0,0,0,20,"pt"))
+                            cutoff_lab = "Seroprevalence threshold (%)") 
 
 sp_fig_1to5 <- get_sens_spec_fig(df = sens_spec_1to5,
                             lyn_list = "lyn_1to5_list",
                             dvar_input = "pcr_prev",
                             cutoff_var = "pgp3_prev",
-                            cutoff_lab = "Seroprevalence threshold (%)") +
-  theme(plot.margin = margin(0,0,0,20,"pt"))
+                            cutoff_lab = "Seroprevalence threshold (%)") 
 
 sir_fig <- get_sens_spec_fig(df = sens_spec_all,
                             lyn_list = "lyn_all_list",
                             dvar_input = "pcr_prev",
                             cutoff_var = "sir_foi",
-                            cutoff_lab = "Seroconversion rate per 100 PY threshold") +
-  theme(plot.margin = margin(0,0,0,20,"pt"))
+                            cutoff_lab = "Seroconversion rate per 100 PY threshold") 
 
 sis_fig <- get_sens_spec_fig(df = sens_spec_all,
                             lyn_list = "lyn_all_list",
                             dvar_input = "pcr_prev",
                             cutoff_var = "sis_foi",
-                            cutoff_lab = "Seroconversion rate per 100 PY threshold\n(seroreversion rate = 6.6 per 100 PY)") +
-  theme(plot.margin = margin(0,0,0,20,"pt"))
+                            cutoff_lab = "Seroconversion rate per 100 PY threshold\n(seroreversion rate = 6.6 per 100 PY)") 
 
 ```
 
@@ -303,7 +300,9 @@ roc_sp_fig <- sens_spec_all %>%
             aes(x = x_text, y = y_text), size = 3.5, hjust=0.5, color="black", fontface="bold",
             label = paste0("AUC=", sprintf("%1.2f",auc_pgp3))) +
   theme_minimal() +
-  theme(legend.position = "none")
+  theme(legend.position = "none",
+        plot.margin = margin(t=16.5,r=5.5,b=5.5,l=20,unit="pt")
+        )
 
 roc_sir_fig <- sens_spec_all %>%
   filter(dvar == "pcr_prev", var == "sir_foi", dcutoff==0) %>%
@@ -323,7 +322,8 @@ roc_sir_fig <- sens_spec_all %>%
             label = paste0("AUC=", sprintf("%1.2f",auc_sir))) +
   theme_minimal() +
   theme(legend.position = "none",
-        plot.margin = margin(0.2,0.2,0.45,0.2,unit = "cm"))
+        plot.margin = margin(t=16.5,r=5.5,b=5.5,l=20,unit="pt")
+        )
 
 # 1 to 5
 # calculate AUC
@@ -362,7 +362,9 @@ roc_sp_1to5_fig <- sens_spec_1to5 %>%
             aes(x = x_text, y = y_text), size = 3.5, hjust=0.5, color="black", fontface="bold",
             label = paste0("AUC=", sprintf("%1.2f",auc_pgp3))) +
   theme_minimal() +
-  theme(legend.position = "none")
+  theme(legend.position = "none",
+        plot.margin = margin(t=16.5,r=5.5,b=5.5,l=20,unit="pt")
+        )
 
 ```
 
@@ -403,8 +405,8 @@ sens_spec_fig
 
 ggsave(filename = here("output", "fig6_sens_spec_sp.pdf"),
        sens_spec_fig,
-       device = cairo_pdf,
-       width = 8.5, height = 3.5, units = "in")
+       device = pdf,
+       width = 180, height = 90, units = "mm")
 ```
 
 **Figure S5. Seroconversion rate among children 1-9y**
@@ -417,8 +419,8 @@ sens_spec_fig_scr
 
 ggsave(filename = here("output", "figS5_sens_spec_scr.pdf"),
        sens_spec_fig_scr,
-       device = cairo_pdf,
-       width = 8.5, height = 3.5, units = "in")
+       device = pdf,
+       width = 180, height = 90, units = "mm")
 ```
 
 **Figure S6. Seroprevalence among children 1-5y**
@@ -431,8 +433,8 @@ sens_spec_1to5_fig
 
 ggsave(filename = here("output", "figS6_sens_spec_sp_1to5.pdf"),
        sens_spec_1to5_fig,
-       device = cairo_pdf,
-       width = 8.5, height = 3.5, units = "in")
+       device = pdf,
+       width = 180, height = 90, units = "mm")
 ```
 
 ## Save Supplementary information tables 2-5
@@ -446,7 +448,7 @@ write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp
             dplyr::select("Seroprevalence threshold (%)" = cutoff,
                           "Sensitivity" = sens,
                           "Specificity" = spec),
-          file = here("output", "tables2_sens_spec_sp.csv"))
+          file = here("output", "trachoma-transmission-serology-tableS2_sens_spec_sp.csv"))
 
 # table s3. seroconversion 1-9 year olds
 write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% 
@@ -456,7 +458,7 @@ write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir
 threshold (no seroreversion)" = cutoff,
                           "Sensitivity" = sens,
                           "Specificity" = spec),
-          file = here("output", "tables3_sens_spec_scr.csv"))
+          file = here("output", "trachoma-transmission-serology-tableS3_sens_spec_scr.csv"))
 
 # table s4. seroprevalence 1-5 year olds
 write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% 
@@ -464,7 +466,7 @@ write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pg
             dplyr::select("Seroprevalence threshold (%)" = cutoff,
                           "Sensitivity" = sens,
                           "Specificity" = spec),
-          file = here("output", "tables4_sens_spec_sp_1to5.csv"))
+          file = here("output", "trachoma-transmission-serology-tableS4_sens_spec_sp_1to5.csv"))
 
 # table s5. seroconversion 1-9 year olds
 write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% 
@@ -474,7 +476,7 @@ write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "si
 threshold (no seroreversion)" = cutoff,
                           "Sensitivity" = sens,
                           "Specificity" = spec),
-          file = here("output", "tables5_sens_spec_scr_1to5.csv"))
+          file = here("output", "trachoma-transmission-serology-tableS5_sens_spec_scr_1to5.csv"))
 ```
 
 ## For text

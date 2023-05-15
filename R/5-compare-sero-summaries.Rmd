@@ -175,17 +175,17 @@ get_sero_compare_fig <- function(x_var, y_var, incl_clu = TRUE, incl_ci = TRUE, 
 }
 
 sero_mab_fig <- get_sero_compare_fig(x_var = "pgp3_prev", y_var = "pgp3_log10geomean",
-                                     x_max = 100, y_min = 1, y_max = 1e4, y_text = 10^(4*0.9),
+                                     x_max = 100, y_min = 1, y_max = 1e4, y_text = 10^(4*0.92),
                                      log_y = TRUE,
                                      x_lab = "Seroprevalence (%)", y_lab = "Antibody response\n(geometric mean MFI-bg)")
 
 sero_sir_fig <- get_sero_compare_fig(x_var = "pgp3_prev", y_var = "sir_foi",
-                                     x_max = 100, y_max = 100, y_text = 100*0.9,
+                                     x_max = 100, y_max = 100, y_text = 100*0.94,
                                      x_lab = "Seroprevalence (%)", y_lab = "Seroconversion rate per 100 PY\n(no seroreversion)")
 
 sero_sis_fig <- get_sero_compare_fig(x_var = "pgp3_prev", y_var = "sis_foi",
-                                     x_max = 100, y_max = 100, y_text = 100*0.9,
-                                     x_lab = "Seroprevalence (%)", y_lab = "Seroconversion rate per 100 PY\n(seroreversion rate = 6.6 per 100 PY)")
+                                     x_max = 100, y_max = 100, y_text = 100*0.94,
+                                     x_lab = "Seroprevalence (%)\n", y_lab = "Seroconversion rate per 100 PY\n(seroreversion rate: 6.6 per 100 PY)")
 
 sero_gam_fig <- get_sero_compare_fig(x_var = "pgp3_prev", y_var = "gam_foi",
                                      x_max = 100, y_max = 25, y_text = 25*0.9,
@@ -203,8 +203,8 @@ sir_sp_fig <- get_sero_compare_fig(x_var = "sir_foi", y_var = "pgp3_prev",
                                      x_lab = "Seroconversion rate per 100 PY\n(no seroreversion)", y_lab = "Seroprevalence (%)")
 
 sir_sis_fig <- get_sero_compare_fig(x_var = "sir_foi", y_var = "sis_foi",
-                                     x_max = 100, y_max = 100, y_text = 100*0.9,
-                                     x_lab = "Seroconversion rate per 100 PY\n(no seroreversion)", y_lab = "Seroconversion rate per 100 PY\n(seroreversion rate = 6.6 per 100 PY)")
+                                     x_max = 100, y_max = 100, y_text = 100*0.94,
+                                     x_lab = "Seroconversion rate per 100 PY\n(no seroreversion)", y_lab = "Seroconversion rate per 100 PY\n(seroreversion rate: 6.6 per 100 PY)")
 
 sir_gam_fig <- get_sero_compare_fig(x_var = "sir_foi", y_var = "gam_foi",
                                      x_max = 20, y_max = 20, y_text = 20*0.9,
@@ -222,13 +222,30 @@ my_ggp <- ggplot(data = lyn_all) +
                     labels = location_year_name_short %>% filter(location_year_name %in% (lyn_all %>% pull(location_year_name))) %>% deframe()) +
   theme_minimal() +
   theme(legend.title = element_blank(),
-        legend.key.height = unit(0.5, "cm"),
-        legend.key.width = unit(0.8, "cm"),
-        legend.text = element_text(size = 8)) +
+        legend.key.height = unit(5, "mm"),
+        legend.key.width = unit(5, "mm"),
+        legend.text = element_text(size = 7)) +
   guides(fill = guide_legend(nrow = 3))
 step1 <- ggplot_gtable(ggplot_build(my_ggp))
 step2 <- which(sapply(step1$grobs, function(x) x$name) == "guide-box")
 step3 <- step1$grobs[[step2]]
+
+# make a slightly different legend for the Supplemental Fig 3
+my_ggp_sif3 <- ggplot(data = lyn_all) +
+  geom_point(aes(x = pgp3_prev_median, y = sir_foi_median, fill = location_year_name),
+             pch = 21, color = "black", size = 2.5, alpha=0.9) +
+  scale_fill_manual(values = location_year_name_colors[lyn_all %>% pull(location_year_name)],
+                    labels = location_year_name_short %>% filter(location_year_name %in% (lyn_all %>% pull(location_year_name))) %>% deframe()) +
+  theme_minimal() +
+  theme(legend.title = element_blank(),
+        legend.key.height = unit(3, "mm"),
+        legend.key.width = unit(5, "mm"),
+        legend.text = element_text(size = 7)) +
+  guides(fill = guide_legend(nrow = 7))
+step1_sif3 <- ggplot_gtable(ggplot_build(my_ggp_sif3))
+step2_sif3 <- which(sapply(step1_sif3$grobs, function(x) x$name) == "guide-box")
+step3_sif3 <- step1_sif3$grobs[[step2_sif3]]
+
 ```
 
 ```{r, fig.width = 8.5, fig.height = 6.5}
@@ -247,13 +264,13 @@ sir_gam_fig
 if(save_figs) {
   ggsave(filename = here::here("output", "fig3_sero_summaries.pdf"),
        plot = combined_fig,
-       device = cairo_pdf,
-       width = 8.5, height = 6.5)
+       device = pdf,
+       width = 180, height = 180, units="mm")
   
   ggsave(filename = here::here("output", "figS3_sir_gam.pdf"),
-       plot = plot_grid(sir_gam_fig, step3, ncol = 1, labels = NA, rel_heights = c(1, 0.25)),
-       device = cairo_pdf,
-       width = 8.5, height = 8)
+       plot = plot_grid(sir_gam_fig, step3_sif3, ncol = 1, labels = NA, rel_heights = c(1, 0.3)),
+       device = pdf,
+       width = 100, height = 120, units="mm")
   
 }
 
@@ -292,7 +309,7 @@ aic_fig
 if(save_figs) {
   ggsave(filename = here::here("output", "figS8_aic_compare.pdf"),
        plot = aic_fig,
-       device = cairo_pdf,
+       device = pdf,
        width = 8.5, height = 7.5)
   
 }
