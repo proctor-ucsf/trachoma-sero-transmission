@@ -264,12 +264,12 @@ sir_gam_fig
 if(save_figs) {
   ggsave(filename = here::here("output", "fig3_sero_summaries.pdf"),
        plot = combined_fig,
-       device = pdf,
+       device = cairo_pdf,
        width = 180, height = 180, units="mm")
   
   ggsave(filename = here::here("output", "figS3_sir_gam.pdf"),
        plot = plot_grid(sir_gam_fig, step3_sif3, ncol = 1, labels = NA, rel_heights = c(1, 0.3)),
-       device = pdf,
+       device = cairo_pdf,
        width = 100, height = 120, units="mm")
   
 }
