@@ -113,6 +113,7 @@ scr_ests_1to5 <- foreach(lyni = unique(ind_df$location_year_name), .combine = rb
 #------------------------------
 # merge estimates to the 
 # study level data
+# subset to o
 #------------------------------
 lyn_all <- lyn_all %>%
   left_join(scr_ests_1to5, by = "location_year_name")
@@ -124,9 +125,11 @@ lyn_all <- lyn_all %>%
 # clusters that are MDA and 
 # no MDA in the RCT. Create
 # study level summaries of these
-# two subgroups for this analysis
-# and replace the overall means
-# in the study-level file
+# two subgroups and replace the 
+# overall means in the study-level file
+# for stratified estimates and
+# plotting of study-level values
+# in the MDA-stratified analyses
 #------------------------------
 taitu2018 <- ind_df %>% 
   filter(study_id == "TAITU2018")
@@ -154,7 +157,7 @@ taitu2018_bymda <- taitu2018_bymda %>%
          pcr_prev_recode = pcr_prev_median,
          tf_prev_recode = tf_prev_median)
 
-lyn_all <- lyn_all %>%
+lyn_mda <- lyn_all %>%
   left_join(taitu2018_bymda, by = c("study_id","location_year_name")) %>%
   mutate(
     mda = ifelse(study_id == "TAITU2018", mda_recode, mda),
@@ -444,7 +447,7 @@ cor_pcr_sp_clu_mda_lb <- quantile(boot_pcr_sp_clu_mda[,1],probs=0.025)
 cor_pcr_sp_clu_mda_ub <- quantile(boot_pcr_sp_clu_mda[,1],probs=0.975)
 corlab <- cl_corlab(cor_pcr_sp_clu_mda,cor_pcr_sp_clu_mda_lb,cor_pcr_sp_clu_mda_ub)
 # study level correlation
-dcor2 <- lyn_all %>% 
+dcor2 <- lyn_mda %>% 
   filter(!is.na(pcr_prev_median) & !is.na(pgp3_prev_median) & mda == 1) %>%
   select(location_year_name, pcr_prev_median, pgp3_prev_median)
 cor_pcr_sp_lyn_mda <- cor.test(dcor2$pcr_prev_median, dcor2$pgp3_prev_median)
@@ -476,7 +479,7 @@ cor_pcr_sp_clu_nomda_ub <- quantile(boot_pcr_sp_clu_nomda[,1],probs=0.975)
 corlab <- cl_corlab(cor_pcr_sp_clu_nomda,cor_pcr_sp_clu_nomda_lb,cor_pcr_sp_clu_nomda_ub)
 
 # study level correlation
-dcor2 <- lyn_all %>% 
+dcor2 <- lyn_mda %>% 
   filter(!is.na(pcr_prev_median) & !is.na(pgp3_prev_median) & mda == 0) %>%
   select(location_year_name, pcr_prev_median, pgp3_prev_median)
 cor_pcr_sp_lyn_nomda <- cor.test(dcor2$pcr_prev_median, dcor2$pgp3_prev_median)
@@ -629,7 +632,7 @@ cor_pcr_scr_clu_mda_ub <- quantile(boot_pcr_scr_clu_mda[,1],probs=0.975)
 corlab <- cl_corlab(cor_pcr_scr_clu_mda,cor_pcr_scr_clu_mda_lb,cor_pcr_scr_clu_mda_ub)
 
 # study level correlation
-dcor2 <- lyn_all %>% 
+dcor2 <- lyn_mda %>% 
   filter(!is.na(pcr_prev_median) & !is.na(sir_foi) & mda == 1) %>%
   select(location_year_name, pcr_prev_median, sir_foi) %>%
   mutate(sir_foi = sir_foi*100)
@@ -662,7 +665,7 @@ cor_pcr_scr_clu_nomda_ub <- quantile(boot_pcr_scr_clu_nomda[,1],probs=0.975)
 corlab <- cl_corlab(cor_pcr_scr_clu_nomda,cor_pcr_scr_clu_nomda_lb,cor_pcr_scr_clu_nomda_ub)
 
 # study level correlation
-dcor2 <- lyn_all %>% 
+dcor2 <- lyn_mda %>% 
   filter(!is.na(pcr_prev_median) & !is.na(sir_foi) & mda == 0) %>%
   select(location_year_name, pcr_prev_median, sir_foi) %>%
   mutate(sir_foi = sir_foi*100)
@@ -764,7 +767,7 @@ corlab <- cl_corlab(cor_pcr_tf_clu_1to5,cor_pcr_tf_clu_1to5_lb,cor_pcr_tf_clu_1t
 # study level correlation
 # since there is not study-level
 # summary of 1-5y, need to compute
-# medians first and add in the TCC ests after
+# medians first
 dcor2 <- clu_1to5 %>%
   select(study_id,location_year_name,pcr_prev_1to5y, tf_prev_1to5y) %>%
   group_by(study_id, location_year_name) %>%
@@ -802,7 +805,7 @@ cor_pcr_tf_clu_mda_ub <- quantile(boot_pcr_tf_clu_mda[,1],probs=0.975)
 corlab <- cl_corlab(cor_pcr_tf_clu_mda,cor_pcr_tf_clu_mda_lb,cor_pcr_tf_clu_mda_ub)
 
 # study level correlation
-dcor2 <- lyn_all %>% 
+dcor2 <- lyn_mda %>% 
   filter(!is.na(pcr_prev_median) & !is.na(tf_prev_median) & mda == 1) %>%
   select(location_year_name, pcr_prev_median, tf_prev_median)
 cor_pcr_tf_lyn_mda <- cor.test(dcor2$pcr_prev_median, dcor2$tf_prev_median)
@@ -832,7 +835,7 @@ cor_pcr_tf_clu_nomda_ub <- quantile(boot_pcr_tf_clu_nomda[,1],probs=0.975)
 corlab <- cl_corlab(cor_pcr_tf_clu_nomda,cor_pcr_tf_clu_nomda_lb,cor_pcr_tf_clu_nomda_ub)
 
 # study level correlation
-dcor2 <- lyn_all %>% 
+dcor2 <- lyn_mda %>% 
   filter(!is.na(pcr_prev_median) & !is.na(tf_prev_median) & mda == 0) %>%
   select(location_year_name, pcr_prev_median, tf_prev_median)
 cor_pcr_tf_lyn_nomda <- cor.test(dcor2$pcr_prev_median, dcor2$tf_prev_median)
