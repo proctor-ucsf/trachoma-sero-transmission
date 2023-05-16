@@ -241,23 +241,23 @@ sp_fig <- get_sens_spec_fig(df = sens_spec_all,
                             cutoff_var = "pgp3_prev",
                             cutoff_lab = "Seroprevalence threshold (%)") 
 
-sp_fig_1to5 <- get_sens_spec_fig(df = sens_spec_1to5,
-                            lyn_list = "lyn_1to5_list",
-                            dvar_input = "pcr_prev",
-                            cutoff_var = "pgp3_prev",
-                            cutoff_lab = "Seroprevalence threshold (%)") 
-
 sir_fig <- get_sens_spec_fig(df = sens_spec_all,
                             lyn_list = "lyn_all_list",
                             dvar_input = "pcr_prev",
                             cutoff_var = "sir_foi",
                             cutoff_lab = "Seroconversion rate per 100 PY threshold") 
 
-sis_fig <- get_sens_spec_fig(df = sens_spec_all,
-                            lyn_list = "lyn_all_list",
+sp_fig_1to5 <- get_sens_spec_fig(df = sens_spec_1to5,
+                            lyn_list = "lyn_1to5_list",
                             dvar_input = "pcr_prev",
-                            cutoff_var = "sis_foi",
-                            cutoff_lab = "Seroconversion rate per 100 PY threshold\n(seroreversion rate = 6.6 per 100 PY)") 
+                            cutoff_var = "pgp3_prev",
+                            cutoff_lab = "Seroprevalence threshold (%)") 
+
+sir_fig_1to5 <- get_sens_spec_fig(df = sens_spec_1to5,
+                            lyn_list = "lyn_1to5_list",
+                            dvar_input = "pcr_prev",
+                            cutoff_var = "sir_foi",
+                            cutoff_lab = "Seroconversion rate per 100 PY threshold") 
 
 ```
 
@@ -366,6 +366,27 @@ roc_sp_1to5_fig <- sens_spec_1to5 %>%
         plot.margin = margin(t=16.5,r=5.5,b=5.5,l=20,unit="pt")
         )
 
+roc_sir_1to5_fig <- sens_spec_1to5 %>%
+  filter(dvar == "pcr_prev", var == "sir_foi", dcutoff==0) %>%
+  arrange((1-spec), sens) %>%
+  ggplot(aes(x = 1-spec, y = sens)) +
+  # add lines for each study pop
+  geom_line(data = sens_spec_all_bylyn %>%
+              filter(dvar == "pcr_prev", var == "sir_foi", dcutoff==0) %>%
+              arrange((1-spec), sens),
+            aes(x = 1-spec, y = sens, color = location_year_name),
+            lwd = 0.4, alpha = 0.8) +
+  geom_line(lwd = 1) +
+  scale_color_manual(values = location_year_name_colors) +
+  labs(x = "1 - Specificity", y = "Sensitivity") +
+  geom_text(data = data.frame(x_text = 0.8, y_text = 0.95),
+            aes(x = x_text, y = y_text), size = 3.5, hjust=0.5, color="black",fontface="bold",
+            label = paste0("AUC=", sprintf("%1.2f",auc_sir))) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.margin = margin(t=16.5,r=5.5,b=5.5,l=20,unit="pt")
+        )
+
 ```
 
 ```{r}
@@ -423,21 +444,22 @@ ggsave(filename = here("output", "figS5_sens_spec_scr.pdf"),
        width = 180, height = 90, units = "mm")
 ```
 
-**Figure S6. Seroprevalence among children 1-5y**
+**Figure S6. Seroprevalence and seroconversion rate among children 1-5y**
 
-```{r save figs6, fig.width = 8.5, fig.height = 3.5}
-sens_spec_1to5_fig <- plot_grid(plot_grid(sp_fig_1to5, roc_sp_1to5_fig, nrow = 1, labels = 'auto'),
-                           step3, rel_heights = c(1, 0.15), ncol = 1)
+```{r save figs6, fig.width = 8.5, fig.height = 7}
+sens_spec_1to5_fig <- plot_grid(
+  plot_grid(sp_fig_1to5, roc_sp_1to5_fig, sir_fig_1to5, roc_sir_1to5_fig, nrow = 2, labels = 'auto'),
+  step3, rel_heights = c(1, 0.1), ncol = 1)
 
 sens_spec_1to5_fig
 
 ggsave(filename = here("output", "figS6_sens_spec_sp_1to5.pdf"),
        sens_spec_1to5_fig,
        device = pdf,
-       width = 180, height = 90, units = "mm")
+       width = 180, height = 180, units = "mm")
 ```
 
-## Save Supplementary information tables 2-5
+## Save Supplementary Data files 1-4
 
 ```{r save tables}
 # save tables
@@ -445,38 +467,28 @@ ggsave(filename = here("output", "figS6_sens_spec_sp_1to5.pdf"),
 # table s2. seroprevalence 1-9 year olds
 write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% 
             mutate_at(vars(sens,spec), ~round(.,3)) %>% mutate_at(vars(cutoff), ~round(.,2)) %>% 
-            dplyr::select("Seroprevalence threshold (%)" = cutoff,
-                          "Sensitivity" = sens,
-                          "Specificity" = spec),
-          file = here("output", "trachoma-transmission-serology-tableS2_sens_spec_sp.csv"))
+            rename(seroprev_threshold = cutoff), 
+          file = here("output", "Supplementary_Data_1_seroprev_threshold_sens_spec_1to9years.csv"))
 
 # table s3. seroconversion 1-9 year olds
 write_csv(sens_spec_all %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% 
             mutate(cutoff = cutoff*100) %>% 
             mutate_at(vars(sens,spec), ~round(.,3)) %>% mutate_at(vars(cutoff), ~round(.,2)) %>% 
-            dplyr::select("Seroconversion rate per 100 PY
-threshold (no seroreversion)" = cutoff,
-                          "Sensitivity" = sens,
-                          "Specificity" = spec),
-          file = here("output", "trachoma-transmission-serology-tableS3_sens_spec_scr.csv"))
+            rename(scr_threshold = cutoff), 
+          file = here("output", "Supplementary_Data_2_scr_threshold_sens_spec_1to9years.csv")) 
 
 # table s4. seroprevalence 1-5 year olds
 write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "pgp3_prev") %>% 
             mutate_at(vars(sens,spec), ~round(.,3)) %>% mutate_at(vars(cutoff), ~round(.,2)) %>% 
-            dplyr::select("Seroprevalence threshold (%)" = cutoff,
-                          "Sensitivity" = sens,
-                          "Specificity" = spec),
-          file = here("output", "trachoma-transmission-serology-tableS4_sens_spec_sp_1to5.csv"))
+            rename(seroprev_threshold = cutoff), 
+          file = here("output", "Supplementary_Data_3_seroprev_threshold_sens_spec_1to5years.csv"))
 
-# table s5. seroconversion 1-9 year olds
+# table s5. seroconversion 1-5 year olds
 write_csv(sens_spec_1to5 %>% filter(dvar == "pcr_prev", dcutoff == 0, var == "sir_foi") %>% 
             mutate(cutoff = cutoff*100) %>% 
             mutate_at(vars(sens,spec), ~round(.,3)) %>% mutate_at(vars(cutoff), ~round(.,2)) %>% 
-            dplyr::select("Seroconversion rate per 100 PY
-threshold (no seroreversion)" = cutoff,
-                          "Sensitivity" = sens,
-                          "Specificity" = spec),
-          file = here("output", "trachoma-transmission-serology-tableS5_sens_spec_scr_1to5.csv"))
+            rename(scr_threshold = cutoff),
+          file = here("output", "Supplementary_Data_4_scr_threshold_sens_spec_1to5years.csv"))
 ```
 
 ## For text
