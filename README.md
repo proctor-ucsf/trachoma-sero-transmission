@@ -7,11 +7,12 @@ Monitoring transmission intensity of trachoma with serology
 
 This repository includes R code to run all of the analysis for the paper:
 
-_Monitoring transmission intensity of trachoma with serology_
+Tedijanto, C., Solomon, A.W., Martin, D.L. et al. **Monitoring transmission intensity of trachoma with serology**. _Nature Communications_ **14**, 3269 (2023). https://doi.org/10.1038/s41467-023-38940-5
 
-Tedijanto et al. (in review)
+This work was funded by the National Institute of Allery and Infectious Diseases (R01-AI158884).
 
-Should you have any questions about the files in this repository, please contact Ben Arnold at UCSF (ben.arnold@ucsf.edu).
+Should you have any questions about the files in this repository, please contact Ben Arnold at UCSF (ben.arnold@ucsf.edu), the PI for the study.
+
 
 ## Linked Repositories and Additional Resources
 
@@ -112,11 +113,11 @@ The first data processing script will download harmonized datasets from OSF and 
 
 You can run the `.Rmd` notebook scripts one-by-one or you can compile [`0-trachoma-sero-transmission-run-all.R`](https://github.com/proctor-ucsf/trachoma-sero-transmission/blob/main/R/0-trachoma-sero-transmission-run-all.R), which is the file we used to run the final analyses (e.g., from the command line `R CMD BATCH 0-trachoma-sero-transmission-run-all.R &`).
 
-The data processing and analyses on the above Mac desktop configuration required 18 minutes to run. 
+The data processing and analyses on the above Mac desktop configuration required 9 minutes to run. 
 
-After building an image on RStudio Server, all data processing and analyses required about 40 minutes to run.
+After building an image on RStudio Server, all data processing and analyses required about 10 minutes to run.
 
-Note that the only script that takes very long is `2-estimate-foi.Rmd` because estimating the hundreds of reversible catalytic models is computationally slow. The other script that is a little bit slow is `6-compare-sero-pcr.Rmd`. 
+Note that the only script that takes very long is `2-estimate-foi.Rmd` because estimating the hundreds of reversible catalytic models is computationally slow.
 
 ### License
 
